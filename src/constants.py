@@ -115,11 +115,23 @@ BUILDING_STATS = {
 
 RESOURCE_TICK_INTERVAL = 5.0  # seconds
 
+# Base generation when a peasant is working at the building
 BUILDING_RESOURCE_GENERATION = {
-    'house': {'gold': 15, 'food': 0, 'wood': 0},
-    'farm': {'gold': 0, 'food': 20, 'wood': 10},
-    'castle': {'gold': 5, 'food': 0, 'wood': 0}
+    'house': {'gold': 20, 'food': 0, 'wood': 0, 'max_workers': 2},
+    'farm': {'gold': 0, 'food': 25, 'wood': 5, 'max_workers': 3},
+    'castle': {'gold': 10, 'food': 5, 'wood': 5, 'max_workers': 1}
 }
+
+# Worker assignment range - how close peasant must be to work
+WORKER_RANGE = 80
+
+# =============================================================================
+# FOOD CONSUMPTION
+# =============================================================================
+
+FOOD_CONSUMPTION_INTERVAL = 10.0  # seconds between food consumption ticks
+FOOD_PER_UNIT = 2  # food consumed per unit per tick
+STARVATION_DAMAGE = 5  # damage taken when no food available
 
 # =============================================================================
 # ENUMS

@@ -10,9 +10,10 @@ from typing import List, Optional, Tuple
 
 from .constants import (
     SCREEN_WIDTH, SCREEN_HEIGHT, MAP_WIDTH, MAP_HEIGHT, TILE_SIZE, FPS,
-    WHITE, BLACK, RED, GREEN, GOLD, GRAY, DARK_GRAY, LIGHT_GRAY, BROWN,
+    WHITE, BLACK, RED, GREEN, GOLD, GRAY, DARK_GRAY, LIGHT_GRAY, BROWN, YELLOW,
     GameState, UnitType, BuildingType, Team,
-    UNIT_COSTS, BUILDING_COSTS, RESOURCE_TICK_INTERVAL, BUILDING_RESOURCE_GENERATION
+    UNIT_COSTS, BUILDING_COSTS, RESOURCE_TICK_INTERVAL,
+    FOOD_CONSUMPTION_INTERVAL, FOOD_PER_UNIT, STARVATION_DAMAGE
 )
 from .assets import AssetManager, ModManager, get_unit_asset_name, get_building_asset_name
 from .entities import Unit, Building, BloodEffect, Resources
@@ -77,6 +78,7 @@ class Game:
 
         # Timers
         self.resource_timer = 0.0
+        self.food_timer = 0.0
 
         # UID counter
         self._uid_counter = 0
@@ -435,6 +437,7 @@ class Game:
         """Issue move/attack command to selected units."""
         target_unit = None
         target_building = None
+        friendly_building = None
 
         # Check for enemy unit target
         for unit in self.units:
@@ -442,19 +445,29 @@ class Game:
                 target_unit = unit
                 break
 
-        # Check for enemy building target
+        # Check for building target
         if not target_unit:
             for building in self.buildings:
-                if building.team == Team.ENEMY and building.get_rect().collidepoint(world_pos):
-                    target_building = building
+                if building.get_rect().collidepoint(world_pos):
+                    if building.team == Team.ENEMY:
+                        target_building = building
+                    else:
+                        friendly_building = building
                     break
 
         # Issue commands
         for unit in self.selected_units:
+            # Unassign peasant from current building when given new orders
+            if unit.unit_type == UnitType.PEASANT and unit.assigned_building:
+                unit.unassign_from_building()
+
             if target_unit:
                 unit.set_attack_target(target_unit)
             elif target_building:
                 unit.set_building_target(target_building)
+            elif friendly_building and unit.unit_type == UnitType.PEASANT:
+                # Assign peasant to work at friendly building
+                unit.assign_to_building(friendly_building)
             else:
                 unit.set_move_target(world_pos[0], world_pos[1])
 
@@ -560,11 +573,17 @@ class Game:
         # Update units
         self._update_units()
 
+        # Update worker status for peasants
+        self._update_workers()
+
         # Update effects
         self._update_effects()
 
-        # Update resources
+        # Update resources (based on workers)
         self._update_resources()
+
+        # Update food consumption
+        self._update_food_consumption()
 
         # Check win/lose
         self._check_game_over()
@@ -627,6 +646,16 @@ class Game:
                 if u.target_building == building:
                     u.target_building = None
 
+    def _update_workers(self):
+        """Update worker status for all peasants."""
+        for unit in self.units:
+            if unit.unit_type == UnitType.PEASANT:
+                # Check if assigned building still exists
+                if unit.assigned_building and unit.assigned_building not in self.buildings:
+                    unit.unassign_from_building()
+                # Update work status
+                unit.update_work_status()
+
     def _update_effects(self):
         """Update visual effects."""
         for effect in self.blood_effects[:]:
@@ -634,14 +663,14 @@ class Game:
                 self.blood_effects.remove(effect)
 
     def _update_resources(self):
-        """Update resource generation."""
+        """Update resource generation based on workers at buildings."""
         self.resource_timer += self.dt
         if self.resource_timer >= RESOURCE_TICK_INTERVAL:
             self.resource_timer = 0
 
             for building in self.buildings:
-                type_key = building.building_type.name.lower()
-                gen = BUILDING_RESOURCE_GENERATION.get(type_key, {})
+                # Get resource generation based on workers
+                gen = building.get_resource_generation(self.units)
 
                 if building.team == Team.PLAYER:
                     self.player_resources.add(
@@ -655,6 +684,36 @@ class Game:
                         food=gen.get('food', 0),
                         wood=gen.get('wood', 0)
                     )
+
+    def _update_food_consumption(self):
+        """Update food consumption and starvation."""
+        self.food_timer += self.dt
+        if self.food_timer >= FOOD_CONSUMPTION_INTERVAL:
+            self.food_timer = 0
+
+            # Count units per team
+            player_units = [u for u in self.units if u.team == Team.PLAYER]
+            enemy_units = [u for u in self.units if u.team == Team.ENEMY]
+
+            # Player food consumption
+            player_food_needed = len(player_units) * FOOD_PER_UNIT
+            if self.player_resources.food >= player_food_needed:
+                self.player_resources.food -= player_food_needed
+            else:
+                # Starvation! Units take damage
+                self.player_resources.food = 0
+                for unit in player_units:
+                    unit.take_damage(STARVATION_DAMAGE)
+
+            # Enemy food consumption
+            enemy_food_needed = len(enemy_units) * FOOD_PER_UNIT
+            if self.enemy_resources.food >= enemy_food_needed:
+                self.enemy_resources.food -= enemy_food_needed
+            else:
+                # Enemy starvation
+                self.enemy_resources.food = 0
+                for unit in enemy_units:
+                    unit.take_damage(STARVATION_DAMAGE)
 
     def _handle_network_messages(self):
         """Handle incoming network messages."""
@@ -729,17 +788,19 @@ class Game:
             "Controls:",
             "WASD/Arrow Keys - Move camera",
             "Left Click - Select units",
-            "Right Click - Move/Attack",
+            "Right Click - Move/Attack/Assign workers",
             "H - Build House, F - Build Farm",
             "P - Train Peasant, K - Train Knight",
-            "C - Train Cavalry, N - Train Cannon"
+            "",
+            "IMPORTANT: Assign peasants to buildings for production!",
+            "Units consume food - build farms or starve!"
         ]
 
-        y = 530
+        y = 520
         for line in instructions:
             text = self.font.render(line, True, LIGHT_GRAY)
-            self.screen.blit(text, (SCREEN_WIDTH // 2 - 150, y))
-            y += 25
+            self.screen.blit(text, (SCREEN_WIDTH // 2 - 180, y))
+            y += 22
 
     def _draw_lobby(self):
         """Draw multiplayer lobby."""
@@ -831,6 +892,14 @@ class Game:
             if unit.selected:
                 pygame.draw.circle(self.screen, GREEN, screen_pos, 30, 2)
 
+            # Working indicator for peasants
+            if unit.unit_type == UnitType.PEASANT and unit.is_working:
+                # Draw a small pickaxe/work icon (yellow circle)
+                pygame.draw.circle(self.screen, YELLOW,
+                                 (screen_pos[0] + 15, screen_pos[1] - 15), 6)
+                pygame.draw.circle(self.screen, BLACK,
+                                 (screen_pos[0] + 15, screen_pos[1] - 15), 6, 1)
+
             # Health bar
             draw_health_bar(self.screen, screen_pos, unit.health, unit.max_health, 40)
 
@@ -851,6 +920,21 @@ class Game:
 
             if building.selected:
                 pygame.draw.rect(self.screen, GREEN, rect.inflate(10, 10), 3)
+
+            # Draw worker count for player buildings
+            if building.team == Team.PLAYER:
+                workers = building.count_workers(self.units)
+                max_workers = building.get_max_workers()
+                if max_workers > 0:
+                    # Worker indicator
+                    worker_text = f"{workers}/{max_workers}"
+                    color = GREEN if workers > 0 else RED
+                    text_surf = self.font.render(worker_text, True, color)
+                    text_rect = text_surf.get_rect(center=(screen_pos[0], screen_pos[1] + rect.height // 2 + 12))
+                    # Background for readability
+                    bg_rect = text_rect.inflate(4, 2)
+                    pygame.draw.rect(self.screen, BLACK, bg_rect)
+                    self.screen.blit(text_surf, text_rect)
 
             draw_health_bar(
                 self.screen,

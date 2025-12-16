@@ -9,8 +9,10 @@ from typing import Optional, TYPE_CHECKING
 
 from .constants import (
     UnitType, BuildingType, Team, MAP_WIDTH, MAP_HEIGHT,
-    UNIT_STATS, BUILDING_STATS, STARTING_GOLD, STARTING_FOOD, STARTING_WOOD
+    UNIT_STATS, BUILDING_STATS, STARTING_GOLD, STARTING_FOOD, STARTING_WOOD,
+    WORKER_RANGE, BUILDING_RESOURCE_GENERATION
 )
+from typing import List
 
 if TYPE_CHECKING:
     from .assets import ModManager
@@ -78,6 +80,10 @@ class Unit:
     target_y: Optional[float] = None
     target_unit: Optional['Unit'] = None
     target_building: Optional['Building'] = None
+
+    # Worker assignment (for peasants)
+    assigned_building: Optional['Building'] = field(default=None, repr=False)
+    is_working: bool = False
 
     # Reference to mod manager for stat lookups
     _mod_manager: Optional['ModManager'] = field(default=None, repr=False)
@@ -168,6 +174,34 @@ class Unit:
         self.target_unit = None
         self.target_building = None
 
+    def assign_to_building(self, building: 'Building'):
+        """Assign this peasant to work at a building."""
+        if self.unit_type != UnitType.PEASANT:
+            return
+        self.assigned_building = building
+        self.is_working = False
+        # Move to the building
+        self.set_move_target(building.x, building.y)
+
+    def unassign_from_building(self):
+        """Remove this peasant from building assignment."""
+        self.assigned_building = None
+        self.is_working = False
+
+    def update_work_status(self):
+        """Update whether this peasant is actively working."""
+        if self.unit_type != UnitType.PEASANT or not self.assigned_building:
+            self.is_working = False
+            return
+
+        # Check if close enough to work
+        dist = self.distance_to_building(self.assigned_building)
+        self.is_working = dist <= WORKER_RANGE
+
+        # If not working and not moving, move back to building
+        if not self.is_working and self.target_x is None:
+            self.set_move_target(self.assigned_building.x, self.assigned_building.y)
+
     def take_damage(self, damage: int) -> bool:
         """Take damage. Returns True if unit dies."""
         self.health -= damage
@@ -232,6 +266,43 @@ class Building:
 
     # Reference to mod manager
     _mod_manager: Optional['ModManager'] = field(default=None, repr=False)
+
+    def get_max_workers(self) -> int:
+        """Get maximum number of workers this building can have."""
+        type_key = self.building_type.name.lower()
+        gen_data = BUILDING_RESOURCE_GENERATION.get(type_key, {})
+        return gen_data.get('max_workers', 1)
+
+    def count_workers(self, units: List['Unit']) -> int:
+        """Count how many peasants are working at this building."""
+        count = 0
+        for unit in units:
+            if (unit.unit_type == UnitType.PEASANT and
+                unit.team == self.team and
+                unit.assigned_building == self and
+                unit.is_working):
+                count += 1
+        return count
+
+    def get_production_multiplier(self, units: List['Unit']) -> float:
+        """Get production multiplier based on workers (0.0 to 1.0)."""
+        max_workers = self.get_max_workers()
+        if max_workers == 0:
+            return 0.0
+        workers = self.count_workers(units)
+        return min(1.0, workers / max_workers)
+
+    def get_resource_generation(self, units: List['Unit']) -> dict:
+        """Get actual resource generation based on workers."""
+        type_key = self.building_type.name.lower()
+        base_gen = BUILDING_RESOURCE_GENERATION.get(type_key, {})
+        multiplier = self.get_production_multiplier(units)
+
+        return {
+            'gold': int(base_gen.get('gold', 0) * multiplier),
+            'food': int(base_gen.get('food', 0) * multiplier),
+            'wood': int(base_gen.get('wood', 0) * multiplier)
+        }
 
     def __post_init__(self):
         """Initialize building stats based on type."""

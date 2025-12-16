@@ -8,7 +8,8 @@ from typing import List, Optional, Tuple, TYPE_CHECKING
 
 from .constants import (
     UnitType, BuildingType, Team,
-    UNIT_COSTS, BUILDING_COSTS, MAP_WIDTH, MAP_HEIGHT
+    UNIT_COSTS, BUILDING_COSTS, MAP_WIDTH, MAP_HEIGHT,
+    WORKER_RANGE
 )
 from .entities import Unit, Building, Resources
 
@@ -81,6 +82,16 @@ class AIBot:
         """Get AI's military (non-peasant) units."""
         return [u for u in self.my_units if u.unit_type != UnitType.PEASANT]
 
+    @property
+    def my_peasants(self) -> List[Unit]:
+        """Get AI's peasant units."""
+        return [u for u in self.my_units if u.unit_type == UnitType.PEASANT]
+
+    @property
+    def idle_peasants(self) -> List[Unit]:
+        """Get peasants not assigned to buildings."""
+        return [u for u in self.my_peasants if not u.assigned_building]
+
     def update(self, dt: float):
         """Update AI logic."""
         self.think_timer += dt
@@ -98,6 +109,9 @@ class AIBot:
         """Main AI decision making."""
         # Assess situation
         self._assess_threats()
+
+        # Assign idle peasants to buildings
+        self._assign_workers()
 
         # Economic decisions
         self._economic_decisions()
@@ -123,23 +137,57 @@ class AIBot:
         elif len(self.military_units) >= 5 and self.state != 'defending':
             self.state = 'attacking'
 
+    def _assign_workers(self):
+        """Assign idle peasants to buildings that need workers."""
+        idle = list(self.idle_peasants)  # Make a copy
+
+        if not idle:
+            return
+
+        # Prioritize farms first (for food), then other buildings
+        buildings_by_priority = sorted(
+            self.my_buildings,
+            key=lambda b: 0 if b.building_type == BuildingType.FARM else 1
+        )
+
+        # Find buildings that need workers
+        for building in buildings_by_priority:
+            if not idle:
+                break
+
+            max_workers = building.get_max_workers()
+            current_workers = building.count_workers(self.game.units)
+
+            while current_workers < max_workers and idle:
+                # Assign an idle peasant
+                peasant = idle.pop(0)
+                peasant.assign_to_building(building)
+                current_workers += 1
+
     def _economic_decisions(self):
         """Make economic decisions."""
         # Count buildings by type
         farms = len([b for b in self.my_buildings if b.building_type == BuildingType.FARM])
         houses = len([b for b in self.my_buildings if b.building_type == BuildingType.HOUSE])
-        peasants = len([u for u in self.my_units if u.unit_type == UnitType.PEASANT])
+        peasants = len(self.my_peasants)
+        idle_peasants = len(self.idle_peasants)
 
-        # Build farms if low on food
-        if self.resources.food < 100 and farms < 3:
+        # Calculate total worker slots needed
+        total_slots = sum(b.get_max_workers() for b in self.my_buildings)
+
+        # Build farms first if low on food (priority)
+        if self.resources.food < 150 and farms < 4:
             self._try_build_building(BuildingType.FARM)
 
         # Build houses for gold generation
-        if houses < 4 and self.resources.gold >= 100:
+        if houses < 3 and self.resources.gold >= 100:
             self._try_build_building(BuildingType.HOUSE)
 
-        # Train peasants if low on workers
-        if peasants < 3:
+        # Train peasants if we have building slots to fill
+        if peasants < total_slots + 1 and peasants < 8:
+            self._try_train_unit(UnitType.PEASANT)
+        # Always have at least some peasants
+        elif peasants < 3:
             self._try_train_unit(UnitType.PEASANT)
 
     def _military_decisions(self):
@@ -251,7 +299,20 @@ class AIBot:
             if nearest_enemy and unit.distance_to_unit(nearest_enemy) < 200:
                 unit.set_attack_target(nearest_enemy)
             elif self.attack_target:
-                unit.set_move_target(*self.attack_target)
+                # Check if we should attack a building at target location
+                target_building = self._find_building_at(self.attack_target)
+                if target_building:
+                    unit.set_building_target(target_building)
+                else:
+                    unit.set_move_target(*self.attack_target)
+
+    def _find_building_at(self, pos: Tuple[float, float]) -> Optional[Building]:
+        """Find an enemy building near the given position."""
+        for building in self.enemy_buildings:
+            dist = math.sqrt((building.x - pos[0])**2 + (building.y - pos[1])**2)
+            if dist < 100:
+                return building
+        return None
 
     def _execute_defend_orders(self):
         """Execute defense orders."""
