@@ -13,7 +13,7 @@ from .constants import (
     WHITE, BLACK, RED, GREEN, GOLD, GRAY, DARK_GRAY, LIGHT_GRAY, BROWN, YELLOW,
     GameState, UnitType, BuildingType, Team, Difficulty, DIFFICULTY_SETTINGS,
     UNIT_COSTS, BUILDING_COSTS, RESOURCE_TICK_INTERVAL, BUILD_TIMES, DECONSTRUCT_REFUND,
-    FOOD_CONSUMPTION_INTERVAL, FOOD_PER_UNIT, STARVATION_DAMAGE, WORKER_RANGE
+    FOOD_CONSUMPTION_INTERVAL, FOOD_PER_UNIT, STARVATION_DAMAGE, WORKER_RANGE, TOWER_STATS
 )
 from .assets import AssetManager, ModManager, get_unit_asset_name, get_building_asset_name
 from .entities import Unit, Building, BloodEffect, Resources
@@ -409,6 +409,8 @@ class Game:
             self.placing_building = BuildingType.HOUSE
         elif event.key == pygame.K_f:
             self.placing_building = BuildingType.FARM
+        elif event.key == pygame.K_t:
+            self.placing_building = BuildingType.TOWER
 
         # Unit training hotkeys
         elif event.key == pygame.K_p:
@@ -424,6 +426,13 @@ class Game:
         elif event.key == pygame.K_a:
             if self.selected_units:
                 self.attack_move_mode = True
+
+        # Stop/Cancel
+        elif event.key == pygame.K_s:
+            self.placing_building = None
+            self.attack_move_mode = False
+            for unit in self.selected_units:
+                unit.clear_targets()
 
         # Deconstruct selected building
         elif event.key == pygame.K_x:
@@ -441,13 +450,14 @@ class Game:
         """Handle HUD button clicks."""
         hud_y = SCREEN_HEIGHT - 90
         button_size = 60
+        small_btn = 45
 
         # Unit buttons
         unit_buttons = [
-            (50, UnitType.PEASANT),
-            (120, UnitType.KNIGHT),
-            (190, UnitType.CAVALRY),
-            (260, UnitType.CANNON),
+            (10, UnitType.PEASANT),
+            (75, UnitType.KNIGHT),
+            (140, UnitType.CAVALRY),
+            (205, UnitType.CANNON),
         ]
 
         for bx, unit_type in unit_buttons:
@@ -457,14 +467,45 @@ class Game:
 
         # Building buttons
         building_buttons = [
-            (350, BuildingType.HOUSE),
-            (420, BuildingType.FARM),
+            (290, BuildingType.HOUSE),
+            (355, BuildingType.FARM),
+            (420, BuildingType.TOWER),
         ]
 
         for bx, building_type in building_buttons:
             if pygame.Rect(bx, hud_y, button_size, button_size).collidepoint(mouse_pos):
                 self.placing_building = building_type
                 return
+
+        # Command buttons (right side - adjusted for tower button)
+        cmd_x = 505
+
+        # Attack-move button
+        if pygame.Rect(cmd_x, hud_y, small_btn, small_btn).collidepoint(mouse_pos):
+            if self.selected_units:
+                self.attack_move_mode = not self.attack_move_mode
+            return
+
+        # Deconstruct button
+        if pygame.Rect(cmd_x + 50, hud_y, small_btn, small_btn).collidepoint(mouse_pos):
+            if self.selected_building and self.selected_building.team == Team.PLAYER:
+                self._deconstruct_building(self.selected_building)
+            return
+
+        # Cancel/Stop button
+        if pygame.Rect(cmd_x + 100, hud_y, small_btn, small_btn).collidepoint(mouse_pos):
+            # Cancel current action
+            self.placing_building = None
+            self.attack_move_mode = False
+            for unit in self.selected_units:
+                unit.clear_targets()
+            return
+
+        # Menu button
+        if pygame.Rect(cmd_x, hud_y + 48, small_btn, small_btn).collidepoint(mouse_pos):
+            self.state = GameState.MAIN_MENU
+            self.network.close()
+            return
 
     # =========================================================================
     # SELECTION
@@ -712,6 +753,9 @@ class Game:
         # Update building construction
         self._update_construction()
 
+        # Update tower attacks
+        self._update_tower_attacks()
+
         # Update effects
         self._update_effects()
 
@@ -857,6 +901,55 @@ class Game:
                         for unit in self.units:
                             if unit.constructing_building == building:
                                 unit.constructing_building = None
+
+    def _update_tower_attacks(self):
+        """Update tower attacks against enemy units."""
+        current_time = time.time()
+
+        for building in self.buildings:
+            # Only completed towers can attack
+            if building.building_type != BuildingType.TOWER or not building.completed:
+                continue
+
+            # Check if tower has 2 workers (required to operate)
+            worker_count = building.count_workers(self.units)
+            if worker_count < 2:
+                continue
+
+            # Check cooldown
+            if current_time - building.last_attack < TOWER_STATS['cooldown']:
+                continue
+
+            # Find nearest enemy unit in range
+            tower_range = TOWER_STATS['range']
+            nearest_enemy = None
+            nearest_dist = float('inf')
+
+            for unit in self.units:
+                if unit.team != building.team:
+                    dx = unit.x - building.x
+                    dy = unit.y - building.y
+                    dist = math.sqrt(dx * dx + dy * dy)
+                    if dist <= tower_range and dist < nearest_dist:
+                        nearest_dist = dist
+                        nearest_enemy = unit
+
+            # Attack if target found
+            if nearest_enemy:
+                building.last_attack = current_time
+                # 70% hit chance
+                if random.random() < TOWER_STATS['hit_chance']:
+                    damage = TOWER_STATS['attack']
+                    if nearest_enemy.take_damage(damage):
+                        # Target killed
+                        self.blood_effects.append(BloodEffect(nearest_enemy.x, nearest_enemy.y))
+                        self.units.remove(nearest_enemy)
+                        for u in self.units:
+                            if u.target_unit == nearest_enemy:
+                                u.target_unit = None
+                    else:
+                        # Hit but not killed
+                        self.blood_effects.append(BloodEffect(nearest_enemy.x, nearest_enemy.y, 0.5, 0.5))
 
     def _update_effects(self):
         """Update visual effects."""
@@ -1265,23 +1358,25 @@ class Game:
         pygame.draw.rect(self.screen, DARK_GRAY, panel_rect)
         pygame.draw.rect(self.screen, BLACK, panel_rect, 2)
 
-        # Resources
-        self.resource_display.draw(
-            self.screen,
-            self.player_resources.gold,
-            self.player_resources.food,
-            self.player_resources.wood
-        )
+        # Resources (moved to top-left of HUD)
+        res_x = 600
+        gold_text = self.font.render(f"Gold: {self.player_resources.gold}", True, GOLD)
+        food_text = self.font.render(f"Food: {self.player_resources.food}", True, GREEN)
+        wood_text = self.font.render(f"Wood: {self.player_resources.wood}", True, BROWN)
+        self.screen.blit(gold_text, (res_x, SCREEN_HEIGHT - 95))
+        self.screen.blit(food_text, (res_x, SCREEN_HEIGHT - 75))
+        self.screen.blit(wood_text, (res_x, SCREEN_HEIGHT - 55))
 
         # Unit buttons
         hud_y = SCREEN_HEIGHT - 90
         button_size = 60
+        small_btn = 45
 
         units = [
-            (50, UnitType.PEASANT, 'unit_peasant', f"P: {UNIT_COSTS['peasant']['gold']}g"),
-            (120, UnitType.KNIGHT, 'unit_knight', f"K: {UNIT_COSTS['knight']['gold']}g"),
-            (190, UnitType.CAVALRY, 'unit_cavalry', f"C: {UNIT_COSTS['cavalry']['gold']}g"),
-            (260, UnitType.CANNON, 'unit_cannon', f"N: {UNIT_COSTS['cannon']['gold']}g"),
+            (10, UnitType.PEASANT, 'unit_peasant', f"{UNIT_COSTS['peasant']['gold']}g"),
+            (75, UnitType.KNIGHT, 'unit_knight', f"{UNIT_COSTS['knight']['gold']}g"),
+            (140, UnitType.CAVALRY, 'unit_cavalry', f"{UNIT_COSTS['cavalry']['gold']}g"),
+            (205, UnitType.CANNON, 'unit_cannon', f"{UNIT_COSTS['cannon']['gold']}g"),
         ]
 
         for bx, unit_type, asset_name, label in units:
@@ -1293,12 +1388,13 @@ class Game:
             self.screen.blit(sprite, (bx + 10, hud_y + 5))
 
             label_surf = self.font.render(label, True, WHITE)
-            self.screen.blit(label_surf, (bx, hud_y + 62))
+            self.screen.blit(label_surf, (bx + 5, hud_y + 62))
 
         # Building buttons
         buildings = [
-            (350, BuildingType.HOUSE, 'building_house', f"H: {BUILDING_COSTS['house']['gold']}g"),
-            (420, BuildingType.FARM, 'building_farm', f"F: {BUILDING_COSTS['farm']['gold']}g"),
+            (290, BuildingType.HOUSE, 'building_house', f"{BUILDING_COSTS['house']['gold']}g"),
+            (355, BuildingType.FARM, 'building_farm', f"{BUILDING_COSTS['farm']['gold']}g"),
+            (420, BuildingType.TOWER, 'building_tower', f"{BUILDING_COSTS['tower']['gold']}g"),
         ]
 
         for bx, building_type, asset_name, label in buildings:
@@ -1311,10 +1407,90 @@ class Game:
             self.screen.blit(sprite, (bx + 5, hud_y + 5))
 
             label_surf = self.font.render(label, True, WHITE)
-            self.screen.blit(label_surf, (bx, hud_y + 62))
+            self.screen.blit(label_surf, (bx + 5, hud_y + 62))
 
-        # Selection info
-        self.selection_info.draw(self.screen, self.selected_units, self.selected_building)
+        # Command buttons (adjusted for tower button)
+        cmd_x = 505
+
+        # Attack-move button (A)
+        atk_rect = pygame.Rect(cmd_x, hud_y, small_btn, small_btn)
+        atk_color = RED if self.attack_move_mode else GRAY
+        pygame.draw.rect(self.screen, atk_color, atk_rect)
+        pygame.draw.rect(self.screen, BLACK, atk_rect, 2)
+        atk_text = self.font.render("ATK", True, WHITE)
+        self.screen.blit(atk_text, (cmd_x + 8, hud_y + 14))
+
+        # Deconstruct button (X)
+        dec_rect = pygame.Rect(cmd_x + 50, hud_y, small_btn, small_btn)
+        dec_enabled = self.selected_building and self.selected_building.team == Team.PLAYER and self.selected_building.building_type != BuildingType.CASTLE
+        dec_color = BROWN if dec_enabled else DARK_GRAY
+        pygame.draw.rect(self.screen, dec_color, dec_rect)
+        pygame.draw.rect(self.screen, BLACK, dec_rect, 2)
+        dec_text = self.font.render("DEL", True, WHITE if dec_enabled else GRAY)
+        self.screen.blit(dec_text, (cmd_x + 58, hud_y + 14))
+
+        # Cancel/Stop button
+        stop_rect = pygame.Rect(cmd_x + 100, hud_y, small_btn, small_btn)
+        pygame.draw.rect(self.screen, GRAY, stop_rect)
+        pygame.draw.rect(self.screen, BLACK, stop_rect, 2)
+        stop_text = self.font.render("STP", True, WHITE)
+        self.screen.blit(stop_text, (cmd_x + 108, hud_y + 14))
+
+        # Menu button
+        menu_rect = pygame.Rect(cmd_x, hud_y + 48, small_btn, small_btn)
+        pygame.draw.rect(self.screen, GRAY, menu_rect)
+        pygame.draw.rect(self.screen, BLACK, menu_rect, 2)
+        menu_text = self.font.render("ESC", True, WHITE)
+        self.screen.blit(menu_text, (cmd_x + 8, hud_y + 62))
+
+        # Button labels below
+        label_y = hud_y + 48
+        self.screen.blit(self.font.render("A", True, LIGHT_GRAY), (cmd_x + 18, label_y))
+        self.screen.blit(self.font.render("X", True, LIGHT_GRAY), (cmd_x + 68, label_y))
+        self.screen.blit(self.font.render("S", True, LIGHT_GRAY), (cmd_x + 118, label_y))
+
+        # Selection info (right side)
+        self._draw_selection_info()
+
+    def _draw_selection_info(self):
+        """Draw selection information on the HUD."""
+        info_x = 720
+        info_y = SCREEN_HEIGHT - 95
+
+        if self.selected_units:
+            count = len(self.selected_units)
+            text = f"Selected: {count} unit{'s' if count > 1 else ''}"
+            self.screen.blit(self.font.render(text, True, WHITE), (info_x, info_y))
+
+            # Show unit types
+            types = {}
+            for unit in self.selected_units:
+                name = unit.unit_type.name.title()
+                types[name] = types.get(name, 0) + 1
+            y = info_y + 20
+            for name, cnt in types.items():
+                self.screen.blit(self.font.render(f"  {name}: {cnt}", True, LIGHT_GRAY), (info_x, y))
+                y += 18
+
+        elif self.selected_building:
+            name = self.selected_building.building_type.name.title()
+            health = f"{self.selected_building.health}/{self.selected_building.max_health}"
+            self.screen.blit(self.font.render(name, True, WHITE), (info_x, info_y))
+            self.screen.blit(self.font.render(f"HP: {health}", True, LIGHT_GRAY), (info_x, info_y + 20))
+            if not self.selected_building.completed:
+                prog = f"Building: {int(self.selected_building.build_progress)}%"
+                self.screen.blit(self.font.render(prog, True, YELLOW), (info_x, info_y + 40))
+            elif self.selected_building.building_type != BuildingType.CASTLE:
+                workers = self.selected_building.count_workers(self.units)
+                max_w = self.selected_building.get_max_workers()
+                self.screen.blit(self.font.render(f"Workers: {workers}/{max_w}", True, LIGHT_GRAY), (info_x, info_y + 40))
+        else:
+            self.screen.blit(self.font.render("No selection", True, GRAY), (info_x, info_y))
+
+        # Show attack-move hint
+        if self.attack_move_mode:
+            hint = self.font.render("ATTACK-MOVE: Right-click to target", True, RED)
+            self.screen.blit(hint, (info_x, info_y + 60))
 
     def _draw_minimap(self):
         """Draw minimap."""

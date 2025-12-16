@@ -63,7 +63,8 @@ BUILD_TIMES = {
     'house': 10.0,
     'farm': 8.0,
     'castle': 30.0,
-    'cannon': 5.0
+    'cannon': 5.0,
+    'tower': 15.0
 }
 
 # Refund percentage when deconstructing
@@ -111,13 +112,15 @@ UNIT_STATS = {
 BUILDING_COSTS = {
     'house': {'gold': 100, 'wood': 50},
     'castle': {'gold': 500, 'wood': 200},
-    'farm': {'gold': 75, 'wood': 25}
+    'farm': {'gold': 75, 'wood': 25},
+    'tower': {'gold': 200, 'wood': 100}
 }
 
 BUILDING_STATS = {
     'house': {'health': 300},
     'castle': {'health': 1000},
-    'farm': {'health': 200}
+    'farm': {'health': 200},
+    'tower': {'health': 500}
 }
 
 # =============================================================================
@@ -130,7 +133,19 @@ RESOURCE_TICK_INTERVAL = 5.0  # seconds
 BUILDING_RESOURCE_GENERATION = {
     'house': {'gold': 20, 'food': 0, 'wood': 0, 'max_workers': 2},
     'farm': {'gold': 0, 'food': 25, 'wood': 5, 'max_workers': 3},
-    'castle': {'gold': 10, 'food': 5, 'wood': 5, 'max_workers': 1}
+    'castle': {'gold': 10, 'food': 5, 'wood': 5, 'max_workers': 1},
+    'tower': {'gold': 0, 'food': 0, 'wood': 0, 'max_workers': 2}
+}
+
+# =============================================================================
+# TOWER COMBAT STATS
+# =============================================================================
+
+TOWER_STATS = {
+    'attack': 60,           # High damage
+    'range': 250,           # Long range
+    'cooldown': 2.0,        # Attack interval in seconds
+    'hit_chance': 0.7       # 70% chance to hit
 }
 
 # Worker assignment range - how close peasant must be to work
@@ -213,6 +228,7 @@ class BuildingType(Enum):
     HOUSE = auto()
     CASTLE = auto()
     FARM = auto()
+    TOWER = auto()
 
 
 class Team(Enum):

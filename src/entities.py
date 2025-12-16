@@ -279,6 +279,9 @@ class Building:
     completed: bool = True
     build_progress: float = 100.0
 
+    # Tower attack state
+    last_attack: float = 0
+
     # Reference to mod manager
     _mod_manager: Optional['ModManager'] = field(default=None, repr=False)
 
@@ -340,7 +343,8 @@ class Building:
         sizes = {
             BuildingType.HOUSE: (80, 80),
             BuildingType.CASTLE: (128, 128),
-            BuildingType.FARM: (96, 96)
+            BuildingType.FARM: (96, 96),
+            BuildingType.TOWER: (64, 64)
         }
         w, h = sizes.get(self.building_type, (64, 64))
         return pygame.Rect(self.x - w // 2, self.y - h // 2, w, h)
@@ -350,7 +354,8 @@ class Building:
         sizes = {
             BuildingType.HOUSE: (80, 80),
             BuildingType.CASTLE: (128, 128),
-            BuildingType.FARM: (96, 96)
+            BuildingType.FARM: (96, 96),
+            BuildingType.TOWER: (64, 64)
         }
         return sizes.get(self.building_type, (64, 64))
 

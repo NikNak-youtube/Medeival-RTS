@@ -83,6 +83,11 @@ DEFAULT_ASSET_REGISTRY = {
         'size': (96, 96),
         'description': 'Farm - generates food and wood'
     },
+    'building_tower': {
+        'file': 'medieval-castle-tower-png-67-qwmnx8bmt060rnoa-3187703839.png',
+        'size': (64, 64),
+        'description': 'Tower - defensive structure (2 workers required)'
+    },
 
     # Terrain
     'terrain_grass': {
@@ -359,7 +364,8 @@ UNIT_ASSET_MAP = {
 BUILDING_ASSET_MAP = {
     'HOUSE': 'building_house',
     'CASTLE': 'building_castle',
-    'FARM': 'building_farm'
+    'FARM': 'building_farm',
+    'TOWER': 'building_tower'
 }
 
 
