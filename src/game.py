@@ -97,6 +97,8 @@ class Game:
         # Settings
         self.fullscreen = False
         self.selected_difficulty = Difficulty.NORMAL
+        self.grid_snap = False  # Toggle for grid snapping when placing buildings
+        self.grid_size = 64  # Grid cell size for snapping
 
         # Initialize UI
         self._init_ui()
@@ -123,7 +125,8 @@ class Game:
 
         # Settings buttons
         self.fullscreen_button = Button(SCREEN_WIDTH // 2 - 150, 300, 300, 50, "Fullscreen: Off")
-        self.settings_back_button = Button(SCREEN_WIDTH // 2 - 150, 400, 300, 50, "Back")
+        self.grid_snap_button = Button(SCREEN_WIDTH // 2 - 150, 370, 300, 50, "Grid Snap: Off")
+        self.settings_back_button = Button(SCREEN_WIDTH // 2 - 150, 440, 300, 50, "Back")
 
         # Multiplayer UI
         self.ip_input = TextInput(SCREEN_WIDTH // 2 - 150, 350, 300, 40, "Enter IP address")
@@ -319,11 +322,14 @@ class Game:
     def _handle_settings_input(self, mouse_pos: Tuple[int, int], clicked: bool):
         """Handle settings menu input."""
         self.fullscreen_button.update(mouse_pos)
+        self.grid_snap_button.update(mouse_pos)
         self.settings_back_button.update(mouse_pos)
 
         if clicked:
             if self.fullscreen_button.is_clicked(mouse_pos, True):
                 self._toggle_fullscreen()
+            elif self.grid_snap_button.is_clicked(mouse_pos, True):
+                self._toggle_grid_snap()
             elif self.settings_back_button.is_clicked(mouse_pos, True):
                 self.state = GameState.MAIN_MENU
 
@@ -336,6 +342,14 @@ class Game:
         else:
             self.screen = pygame.display.set_mode((SCREEN_WIDTH, SCREEN_HEIGHT))
             self.fullscreen_button.text = "Fullscreen: Off"
+
+    def _toggle_grid_snap(self):
+        """Toggle grid snapping for building placement."""
+        self.grid_snap = not self.grid_snap
+        if self.grid_snap:
+            self.grid_snap_button.text = "Grid Snap: On"
+        else:
+            self.grid_snap_button.text = "Grid Snap: Off"
 
     def _handle_lobby_input(self, mouse_pos: Tuple[int, int], clicked: bool):
         """Handle multiplayer lobby input."""
@@ -414,6 +428,10 @@ class Game:
             self.placing_building = BuildingType.FARM
         elif event.key == pygame.K_t:
             self.placing_building = BuildingType.TOWER
+
+        # Grid snap toggle
+        elif event.key == pygame.K_g:
+            self._toggle_grid_snap()
 
         # Unit training hotkeys
         elif event.key == pygame.K_p:
@@ -669,10 +687,55 @@ class Game:
         unit.uid = self.next_uid()
         self.units.append(unit)
 
+    def _get_building_placement_pos(self, world_pos: Tuple[float, float]) -> Tuple[float, float]:
+        """Get the placement position, with optional grid snapping."""
+        x, y = world_pos
+        if self.grid_snap:
+            # Snap to grid
+            x = round(x / self.grid_size) * self.grid_size
+            y = round(y / self.grid_size) * self.grid_size
+        return (x, y)
+
+    def _can_place_building(self, world_pos: Tuple[float, float], building_type: BuildingType) -> bool:
+        """Check if a building can be placed at the given position."""
+        # Get building size
+        sizes = {
+            BuildingType.HOUSE: (80, 80),
+            BuildingType.CASTLE: (128, 128),
+            BuildingType.FARM: (96, 96),
+            BuildingType.TOWER: (64, 64)
+        }
+        w, h = sizes.get(building_type, (64, 64))
+
+        # Create a rect for the new building
+        new_rect = pygame.Rect(world_pos[0] - w // 2, world_pos[1] - h // 2, w, h)
+
+        # Check collision with existing buildings
+        for building in self.buildings:
+            existing_rect = building.get_rect()
+            # Add a small margin to prevent buildings from touching
+            existing_rect = existing_rect.inflate(10, 10)
+            if new_rect.colliderect(existing_rect):
+                return False
+
+        # Check map bounds
+        if (world_pos[0] - w // 2 < 0 or world_pos[0] + w // 2 > MAP_WIDTH or
+            world_pos[1] - h // 2 < 0 or world_pos[1] + h // 2 > MAP_HEIGHT):
+            return False
+
+        return True
+
     def _place_building(self, world_pos: Tuple[float, float]):
         """Place a building foundation (requires peasant to construct)."""
         if not self.placing_building:
             return
+
+        # Apply grid snapping if enabled
+        place_pos = self._get_building_placement_pos(world_pos)
+
+        # Check if placement is valid
+        if not self._can_place_building(place_pos, self.placing_building):
+            return  # Invalid placement, don't place
 
         cost_key = self.placing_building.name.lower()
         cost = self.mod_manager.get_building_costs(cost_key)
@@ -684,7 +747,7 @@ class Game:
         self.player_resources.spend(cost)
 
         building = Building(
-            world_pos[0], world_pos[1],
+            place_pos[0], place_pos[1],
             self.placing_building, Team.PLAYER,
             _mod_manager=self.mod_manager
         )
@@ -1276,13 +1339,20 @@ class Game:
         # Fullscreen button
         self.fullscreen_button.draw(self.screen)
 
+        # Grid snap button
+        self.grid_snap_button.draw(self.screen)
+
         # Back button
         self.settings_back_button.draw(self.screen)
 
         # Instructions
         hint = self.font.render("Press F11 in-game to toggle fullscreen", True, LIGHT_GRAY)
-        hint_rect = hint.get_rect(center=(SCREEN_WIDTH // 2, 500))
+        hint_rect = hint.get_rect(center=(SCREEN_WIDTH // 2, 540))
         self.screen.blit(hint, hint_rect)
+
+        hint2 = self.font.render("Press G in-game to toggle grid snapping", True, LIGHT_GRAY)
+        hint2_rect = hint2.get_rect(center=(SCREEN_WIDTH // 2, 565))
+        self.screen.blit(hint2, hint2_rect)
 
     def _draw_game(self):
         """Draw the game world."""
@@ -1427,17 +1497,54 @@ class Game:
             pygame.draw.rect(self.screen, GREEN, self.selection_rect, 2)
 
     def _draw_building_preview(self):
-        """Draw building placement preview."""
+        """Draw building placement preview with validity indicator."""
         if not self.placing_building:
             return
 
         mouse_pos = pygame.mouse.get_pos()
+        world_pos = self.camera.screen_to_world(*mouse_pos)
+
+        # Apply grid snapping if enabled
+        place_pos = self._get_building_placement_pos(world_pos)
+        screen_pos = self.camera.world_to_screen(*place_pos)
+
+        # Check if placement is valid
+        can_place = self._can_place_building(place_pos, self.placing_building)
+
         asset_name = get_building_asset_name(self.placing_building)
         sprite = self.assets.get(asset_name).copy()
-        sprite.set_alpha(128)
+        sprite.set_alpha(160)
 
-        rect = sprite.get_rect(center=mouse_pos)
+        # Tint based on validity
+        if can_place:
+            # Green tint for valid placement
+            sprite.fill((100, 255, 100), special_flags=pygame.BLEND_MULT)
+        else:
+            # Red tint for invalid placement
+            sprite.fill((255, 100, 100), special_flags=pygame.BLEND_MULT)
+
+        rect = sprite.get_rect(center=screen_pos)
         self.screen.blit(sprite, rect)
+
+        # Draw outline
+        outline_color = GREEN if can_place else RED
+        pygame.draw.rect(self.screen, outline_color, rect.inflate(4, 4), 2)
+
+        # Draw grid lines if grid snap is enabled
+        if self.grid_snap:
+            # Draw nearby grid lines faintly
+            grid_color = (100, 100, 100, 100)
+            cam_x, cam_y = int(self.camera.x), int(self.camera.y)
+            # Calculate visible grid area
+            start_grid_x = (cam_x // self.grid_size) * self.grid_size
+            start_grid_y = (cam_y // self.grid_size) * self.grid_size
+            # Draw only a few grid lines around the mouse position for clarity
+            for gx in range(int(start_grid_x), int(start_grid_x + SCREEN_WIDTH + self.grid_size * 2), self.grid_size):
+                sx, _ = self.camera.world_to_screen(gx, 0)
+                pygame.draw.line(self.screen, DARK_GRAY, (sx, 0), (sx, SCREEN_HEIGHT - 100), 1)
+            for gy in range(int(start_grid_y), int(start_grid_y + SCREEN_HEIGHT + self.grid_size * 2), self.grid_size):
+                _, sy = self.camera.world_to_screen(0, gy)
+                pygame.draw.line(self.screen, DARK_GRAY, (0, sy), (SCREEN_WIDTH, sy), 1)
 
     def _draw_hud(self):
         """Draw the HUD with tabbed interface."""
