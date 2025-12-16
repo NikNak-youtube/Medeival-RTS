@@ -73,6 +73,10 @@ class AIBot:
         self.initial_attack_force = 0  # Number of units when attack started
         self.units_lost_in_battle = 0  # Track casualties during current attack
 
+        # Emergency defense - castle under direct attack
+        self.castle_under_attack = False
+        self.castle_attackers: List[Unit] = []
+
     @property
     def resources(self) -> Resources:
         """Get AI resources."""
@@ -378,8 +382,16 @@ class AIBot:
             if u.distance_to(castle.x, castle.y) < 300
         ]
 
+        # Check if castle is under DIRECT attack (enemies very close or targeting castle)
+        self.castle_attackers = [
+            u for u in self.enemy_units
+            if (u.distance_to(castle.x, castle.y) < 150 or
+                (u.target_building and u.target_building == castle))
+        ]
+        self.castle_under_attack = len(self.castle_attackers) >= 1
+
         # Determine if we should switch to defending
-        should_defend = len(nearby_enemies) >= 2
+        should_defend = len(nearby_enemies) >= 2 or self.castle_under_attack
 
         # If currently attacking, check if we should retreat
         if self.state == 'attacking' and should_defend:
@@ -563,6 +575,11 @@ class AIBot:
         enemy_military_count = len(self.enemy_military_units)
         military_cap = self.settings['military_cap']
 
+        # EMERGENCY: Castle under direct attack - spend all resources on military NOW
+        if self.castle_under_attack:
+            self._emergency_military_spending()
+            return  # Skip normal military logic, focus on emergency
+
         # Build military based on resources and current army size
         if military_count < military_cap:
             # More aggressive AIs build more cavalry
@@ -577,26 +594,33 @@ class AIBot:
         if military_count >= 4 and cannons < max_cannons and random.random() < self.aggression * 0.3:
             self._try_train_unit(UnitType.CANNON)
 
-        # Attack decision - more aggressive on harder difficulties
-        attack_threshold = max(3, int(5 - self.aggression * 3))
+    def _emergency_military_spending(self):
+        """Spend all available resources on military units when castle is under attack."""
+        # Keep spawning units as fast as possible while we have resources
+        # Prioritize fast units (cavalry) to intercept attackers quickly
+        units_spawned = 0
+        max_emergency_spawns = 5  # Limit per think cycle to avoid lag
 
-        # For Normal+ difficulties, also require having more military than the player
-        # Easy mode attacks based only on threshold
-        if self.difficulty == Difficulty.EASY:
-            can_attack = military_count >= attack_threshold
-        else:
-            # Normal+ requires both threshold AND army advantage over player
-            can_attack = military_count >= attack_threshold and military_count > enemy_military_count
+        while units_spawned < max_emergency_spawns:
+            spawned = False
 
-        # Only start attack if not already attacking and not in cooldown
-        if can_attack and self.state != 'defending' and self.state != 'attacking':
-            if self.state_change_cooldown <= 0:
-                self._change_state('attacking')
-                self._choose_attack_target()
-                # Initialize battle tracking
-                self.battle_committed = False
-                self.initial_attack_force = military_count
-                self.units_lost_in_battle = 0
+            # Try cavalry first (fastest to intercept)
+            if self.resources.gold >= 200 and self.resources.food >= 75:
+                self._try_train_unit(UnitType.CAVALRY)
+                spawned = True
+            # Then knights
+            elif self.resources.gold >= 150 and self.resources.food >= 50:
+                self._try_train_unit(UnitType.KNIGHT)
+                spawned = True
+            # Even peasants can help in emergencies
+            elif self.resources.gold >= 50 and self.resources.food >= 25:
+                self._try_train_unit(UnitType.PEASANT)
+                spawned = True
+
+            if not spawned:
+                break  # No more resources
+
+            units_spawned += 1
 
     def _choose_attack_target(self):
         """Choose a target to attack."""
@@ -864,8 +888,31 @@ class AIBot:
         if not castle:
             return
 
-        for unit in self.military_units:
-            # Find enemies near castle
+        # Get all units that can fight (military + idle peasants in emergency)
+        defenders = list(self.military_units)
+
+        # In emergency, even peasants fight
+        if self.castle_under_attack:
+            idle_peasants = [p for p in self.my_peasants if not p.assigned_building]
+            defenders.extend(idle_peasants)
+
+        for unit in defenders:
+            # PRIORITY 1: If castle is under direct attack, target castle attackers first
+            if self.castle_under_attack and self.castle_attackers:
+                # Find the closest attacker that's threatening the castle
+                alive_attackers = [a for a in self.castle_attackers if a.is_alive()]
+                if alive_attackers:
+                    # Prioritize enemies actually attacking the castle building
+                    castle_targeters = [a for a in alive_attackers
+                                       if a.target_building and a.target_building == castle]
+                    if castle_targeters:
+                        nearest = min(castle_targeters, key=lambda e: unit.distance_to_unit(e))
+                    else:
+                        nearest = min(alive_attackers, key=lambda e: unit.distance_to_unit(e))
+                    unit.set_attack_target(nearest)
+                    continue
+
+            # PRIORITY 2: Find any enemies near castle
             enemies_near_castle = [
                 e for e in self.enemy_units
                 if e.distance_to(castle.x, castle.y) < 400
