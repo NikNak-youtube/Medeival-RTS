@@ -125,6 +125,17 @@ class Unit:
         """Get unit visual size."""
         return 48 if self.unit_type == UnitType.CAVALRY else 40
 
+    def get_collision_radius(self) -> float:
+        """Get unit collision radius for soft collisions."""
+        if self.unit_type == UnitType.CAVALRY:
+            return 20.0
+        elif self.unit_type == UnitType.CANNON:
+            return 18.0
+        elif self.unit_type == UnitType.KNIGHT:
+            return 16.0
+        else:  # Peasant
+            return 14.0
+
     def distance_to(self, other_x: float, other_y: float) -> float:
         """Calculate distance to a point."""
         return math.sqrt((self.x - other_x) ** 2 + (self.y - other_y) ** 2)

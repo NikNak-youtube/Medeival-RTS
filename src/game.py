@@ -763,6 +763,9 @@ class Game:
         # Update units
         self._update_units()
 
+        # Update unit collisions (soft push)
+        self._update_unit_collisions()
+
         # Update worker status for peasants
         self._update_workers()
 
@@ -876,6 +879,75 @@ class Game:
             for u in self.units:
                 if u.target_building == building:
                     u.target_building = None
+
+    def _update_unit_collisions(self):
+        """Apply soft collision between units to push them apart."""
+        push_strength = 2.0  # How strongly units push each other
+
+        for i, unit in enumerate(self.units):
+            push_x = 0.0
+            push_y = 0.0
+
+            unit_radius = unit.get_collision_radius()
+
+            # Check against other units
+            for j, other in enumerate(self.units):
+                if i >= j:  # Skip self and already-checked pairs
+                    continue
+
+                other_radius = other.get_collision_radius()
+                min_dist = unit_radius + other_radius
+
+                dx = unit.x - other.x
+                dy = unit.y - other.y
+                dist = math.sqrt(dx * dx + dy * dy)
+
+                if dist < min_dist and dist > 0.1:
+                    # Units are overlapping - calculate push
+                    overlap = min_dist - dist
+                    # Normalize direction
+                    nx = dx / dist
+                    ny = dy / dist
+                    # Push force (stronger when more overlap)
+                    push_force = overlap * push_strength * self.dt * 60
+
+                    # Apply half push to each unit (equal and opposite)
+                    half_push = push_force * 0.5
+                    push_x += nx * half_push
+                    push_y += ny * half_push
+
+                    # Push the other unit in opposite direction
+                    other.x -= nx * half_push
+                    other.y -= ny * half_push
+                    # Clamp other to map bounds
+                    other.x = max(20, min(MAP_WIDTH - 20, other.x))
+                    other.y = max(20, min(MAP_HEIGHT - 20, other.y))
+
+            # Also check collision with buildings
+            for building in self.buildings:
+                bw, bh = building.get_size()
+                building_radius = max(bw, bh) * 0.4  # Slightly smaller than visual
+                min_dist = unit_radius + building_radius
+
+                dx = unit.x - building.x
+                dy = unit.y - building.y
+                dist = math.sqrt(dx * dx + dy * dy)
+
+                if dist < min_dist and dist > 0.1:
+                    # Push unit away from building (building doesn't move)
+                    overlap = min_dist - dist
+                    nx = dx / dist
+                    ny = dy / dist
+                    push_force = overlap * push_strength * self.dt * 60
+                    push_x += nx * push_force
+                    push_y += ny * push_force
+
+            # Apply accumulated push
+            unit.x += push_x
+            unit.y += push_y
+            # Clamp to map bounds
+            unit.x = max(20, min(MAP_WIDTH - 20, unit.x))
+            unit.y = max(20, min(MAP_HEIGHT - 20, unit.y))
 
     def _update_workers(self):
         """Update worker status for all peasants."""
