@@ -1,0 +1,23 @@
+{
+    "_comment": "Override building stats and costs here",
+
+    "stats": {
+        "_comment": "Uncomment to modify building stats",
+
+        "_house": {
+            "health": 400
+        },
+        "_castle": {
+            "health": 1500
+        }
+    },
+
+    "costs": {
+        "_comment": "Uncomment to modify building costs",
+
+        "_house": {
+            "gold": 80,
+            "wood": 40
+        }
+    }
+}

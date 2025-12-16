@@ -1,0 +1,153 @@
+"""
+Game constants and configuration.
+"""
+
+from enum import Enum, auto
+
+# =============================================================================
+# DISPLAY SETTINGS
+# =============================================================================
+
+SCREEN_WIDTH = 1280
+SCREEN_HEIGHT = 720
+MAP_WIDTH = 2000
+MAP_HEIGHT = 2000
+TILE_SIZE = 64
+FPS = 60
+
+# =============================================================================
+# COLORS
+# =============================================================================
+
+WHITE = (255, 255, 255)
+BLACK = (0, 0, 0)
+RED = (200, 50, 50)
+BLUE = (50, 50, 200)
+GREEN = (50, 200, 50)
+YELLOW = (200, 200, 50)
+GRAY = (128, 128, 128)
+DARK_GRAY = (64, 64, 64)
+LIGHT_GRAY = (192, 192, 192)
+BROWN = (139, 90, 43)
+GOLD = (255, 215, 0)
+DARK_GREEN = (34, 139, 34)
+
+# =============================================================================
+# NETWORK SETTINGS
+# =============================================================================
+
+DEFAULT_PORT = 5555
+BUFFER_SIZE = 4096
+
+# =============================================================================
+# STARTING RESOURCES
+# =============================================================================
+
+STARTING_GOLD = 500
+STARTING_FOOD = 200
+STARTING_WOOD = 300
+
+# =============================================================================
+# UNIT DEFINITIONS
+# =============================================================================
+
+UNIT_COSTS = {
+    'peasant': {'gold': 50, 'food': 25},
+    'knight': {'gold': 150, 'food': 50},
+    'cavalry': {'gold': 200, 'food': 75},
+    'cannon': {'gold': 300, 'food': 0}
+}
+
+UNIT_STATS = {
+    'peasant': {
+        'health': 50,
+        'attack': 5,
+        'defense': 2,
+        'speed': 2.5,
+        'range': 20,
+        'cooldown': 1.0
+    },
+    'knight': {
+        'health': 150,
+        'attack': 20,
+        'defense': 15,
+        'speed': 1.8,
+        'range': 35,
+        'cooldown': 1.2
+    },
+    'cavalry': {
+        'health': 120,
+        'attack': 25,
+        'defense': 10,
+        'speed': 4.0,
+        'range': 40,
+        'cooldown': 0.8
+    },
+    'cannon': {
+        'health': 80,
+        'attack': 50,
+        'defense': 5,
+        'speed': 1.0,
+        'range': 200,
+        'cooldown': 3.0
+    }
+}
+
+# =============================================================================
+# BUILDING DEFINITIONS
+# =============================================================================
+
+BUILDING_COSTS = {
+    'house': {'gold': 100, 'wood': 50},
+    'castle': {'gold': 500, 'wood': 200},
+    'farm': {'gold': 75, 'wood': 25}
+}
+
+BUILDING_STATS = {
+    'house': {'health': 300},
+    'castle': {'health': 1000},
+    'farm': {'health': 200}
+}
+
+# =============================================================================
+# RESOURCE GENERATION
+# =============================================================================
+
+RESOURCE_TICK_INTERVAL = 5.0  # seconds
+
+BUILDING_RESOURCE_GENERATION = {
+    'house': {'gold': 15, 'food': 0, 'wood': 0},
+    'farm': {'gold': 0, 'food': 20, 'wood': 10},
+    'castle': {'gold': 5, 'food': 0, 'wood': 0}
+}
+
+# =============================================================================
+# ENUMS
+# =============================================================================
+
+class GameState(Enum):
+    MAIN_MENU = auto()
+    PLAYING = auto()
+    PAUSED = auto()
+    GAME_OVER = auto()
+    MULTIPLAYER_LOBBY = auto()
+    CONNECTING = auto()
+    WAITING_FOR_ACCEPT = auto()
+
+
+class UnitType(Enum):
+    PEASANT = auto()
+    KNIGHT = auto()
+    CAVALRY = auto()
+    CANNON = auto()
+
+
+class BuildingType(Enum):
+    HOUSE = auto()
+    CASTLE = auto()
+    FARM = auto()
+
+
+class Team(Enum):
+    PLAYER = auto()
+    ENEMY = auto()

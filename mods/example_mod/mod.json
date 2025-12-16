@@ -1,0 +1,7 @@
+{
+    "name": "Example Mod",
+    "version": "1.0.0",
+    "author": "Your Name",
+    "description": "An example mod demonstrating the mod system",
+    "game_version": "1.0.0"
+}

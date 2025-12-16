@@ -1,0 +1,15 @@
+{
+    "_comment": "This file maps asset names to custom image files in the images/ folder",
+    "_comment2": "Uncomment and modify entries below to override default assets",
+
+    "_unit_knight": {
+        "file": "custom_knight.png",
+        "size": [48, 64],
+        "description": "Custom knight sprite"
+    },
+    "_unit_peasant": {
+        "file": "custom_peasant.png",
+        "size": [40, 56],
+        "description": "Custom peasant sprite"
+    }
+}

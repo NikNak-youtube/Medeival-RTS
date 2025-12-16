@@ -1,0 +1,37 @@
+{
+    "_comment": "Override unit stats and costs here",
+
+    "stats": {
+        "_comment": "Uncomment to modify unit stats",
+
+        "_knight": {
+            "health": 200,
+            "attack": 25,
+            "defense": 20,
+            "speed": 2.0,
+            "range": 40,
+            "cooldown": 1.0
+        },
+        "_cavalry": {
+            "health": 150,
+            "attack": 30,
+            "defense": 12,
+            "speed": 5.0,
+            "range": 45,
+            "cooldown": 0.7
+        }
+    },
+
+    "costs": {
+        "_comment": "Uncomment to modify unit costs",
+
+        "_knight": {
+            "gold": 100,
+            "food": 40
+        },
+        "_cavalry": {
+            "gold": 150,
+            "food": 60
+        }
+    }
+}
