@@ -512,6 +512,11 @@ class Game:
                     self.placing_building = building_type
                     return
 
+            # Grid snap toggle button
+            if pygame.Rect(210, content_y, button_size, button_size).collidepoint(mouse_pos):
+                self._toggle_grid_snap()
+                return
+
         # Command buttons (right side of left panel)
         cmd_x = 290
 
@@ -855,9 +860,8 @@ class Game:
         current_time = time.time()
 
         for unit in self.units[:]:
-            # Check if unit is colliding with a building (40% slowdown)
-            building_collision = self._is_unit_colliding_with_building(unit)
-            speed_mult = 0.6 if building_collision else 1.0  # 40% slowdown when in building
+            # Check if unit is colliding with a building (70% slow for complete, 40% for incomplete)
+            speed_mult = self._get_building_collision_slowdown(unit)
 
             # Movement and combat
             if unit.target_x is not None:
@@ -947,8 +951,12 @@ class Game:
                 if u.target_building == building:
                     u.target_building = None
 
-    def _is_unit_colliding_with_building(self, unit: Unit) -> bool:
-        """Check if a unit is colliding with any building."""
+    def _get_building_collision_slowdown(self, unit: Unit) -> float:
+        """Check if a unit is colliding with any building and return speed multiplier.
+
+        Returns:
+            1.0 if no collision, 0.3 for completed buildings (70% slow), 0.6 for incomplete (40% slow)
+        """
         unit_radius = unit.get_collision_radius()
 
         for building in self.buildings:
@@ -961,8 +969,9 @@ class Game:
             dist = math.sqrt(dx * dx + dy * dy)
 
             if dist < min_dist:
-                return True
-        return False
+                # Completed buildings slow by 70%, incomplete by 40%
+                return 0.3 if building.completed else 0.6
+        return 1.0
 
     def _update_unit_collisions(self):
         """Apply soft collision between units to push them apart."""
@@ -1619,6 +1628,19 @@ class Game:
 
                 label_surf = self.font.render(label, True, WHITE)
                 self.screen.blit(label_surf, (bx + 5, content_y + 47))
+
+            # Grid snap toggle button
+            grid_rect = pygame.Rect(210, content_y, button_size, button_size)
+            grid_color = GREEN if self.grid_snap else GRAY
+            pygame.draw.rect(self.screen, grid_color, grid_rect)
+            pygame.draw.rect(self.screen, BLACK, grid_rect, 2)
+            grid_text = self.font.render("GRID", True, WHITE)
+            self.screen.blit(grid_text, (215, content_y + 10))
+            snap_text = self.font.render("G", True, LIGHT_GRAY)
+            self.screen.blit(snap_text, (233, content_y + 32))
+            # Show On/Off status
+            status_text = self.font.render("On" if self.grid_snap else "Off", True, WHITE)
+            self.screen.blit(status_text, (223, content_y + 47))
 
         # Command buttons (right side of left panel)
         cmd_x = 290
