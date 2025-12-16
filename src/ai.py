@@ -90,6 +90,11 @@ class AIBot:
         return [u for u in self.my_units if u.unit_type != UnitType.PEASANT]
 
     @property
+    def enemy_military_units(self) -> List[Unit]:
+        """Get player's military (non-peasant) units."""
+        return [u for u in self.enemy_units if u.unit_type != UnitType.PEASANT]
+
+    @property
     def my_peasants(self) -> List[Unit]:
         """Get AI's peasant units."""
         return [u for u in self.my_units if u.unit_type == UnitType.PEASANT]
@@ -265,6 +270,7 @@ class AIBot:
     def _military_decisions(self):
         """Make military decisions."""
         military_count = len(self.military_units)
+        enemy_military_count = len(self.enemy_military_units)
         military_cap = self.settings['military_cap']
 
         # Build military based on resources and current army size
@@ -283,7 +289,16 @@ class AIBot:
 
         # Attack decision - more aggressive on harder difficulties
         attack_threshold = max(3, int(5 - self.aggression * 3))
-        if military_count >= attack_threshold and self.state != 'defending':
+
+        # For Normal+ difficulties, also require having more military than the player
+        # Easy mode attacks based only on threshold
+        if self.difficulty == Difficulty.EASY:
+            can_attack = military_count >= attack_threshold
+        else:
+            # Normal+ requires both threshold AND army advantage over player
+            can_attack = military_count >= attack_threshold and military_count > enemy_military_count
+
+        if can_attack and self.state != 'defending':
             self.state = 'attacking'
             self._choose_attack_target()
 
@@ -374,18 +389,45 @@ class AIBot:
     def _execute_attack_orders(self):
         """Execute attack orders for military units."""
         for unit in self.military_units:
+            # Dynamic retargeting: check if there's a closer threat even if we have a target
+            nearest_enemy = self._find_nearest_enemy(unit)
+
+            # If an enemy is very close (within attack range + buffer), prioritize them
+            # This allows units to respond to being attacked instead of ignoring threats
+            if nearest_enemy:
+                dist_to_nearest = unit.distance_to_unit(nearest_enemy)
+
+                # Check if we should switch targets
+                should_retarget = False
+
+                if dist_to_nearest < unit.attack_range + 50:
+                    # Enemy is in attack range - definitely engage
+                    should_retarget = True
+                elif unit.target_building and dist_to_nearest < 150:
+                    # Attacking building but enemy unit is close - switch to unit
+                    should_retarget = True
+                elif unit.target_unit and unit.target_unit.is_alive():
+                    # Already targeting a unit - switch if new one is much closer
+                    current_dist = unit.distance_to_unit(unit.target_unit)
+                    if dist_to_nearest < current_dist * 0.6:  # New target is 40% closer
+                        should_retarget = True
+                elif not unit.target_unit or not unit.target_unit.is_alive():
+                    # No valid unit target - engage if enemy is reasonably close
+                    if dist_to_nearest < 200:
+                        should_retarget = True
+
+                if should_retarget:
+                    unit.set_attack_target(nearest_enemy)
+                    continue
+
             # Skip if already has a valid target
             if unit.target_unit and unit.target_unit.is_alive():
                 continue
             if unit.target_building and not unit.target_building.is_destroyed():
                 continue
 
-            # Find nearest enemy unit
-            nearest_enemy = self._find_nearest_enemy(unit)
-
-            if nearest_enemy and unit.distance_to_unit(nearest_enemy) < 200:
-                unit.set_attack_target(nearest_enemy)
-            elif self.attack_target:
+            # No immediate threats - proceed to attack target location
+            if self.attack_target:
                 # Check if we should attack a building at target location
                 target_building = self._find_building_at(self.attack_target)
                 if target_building:
