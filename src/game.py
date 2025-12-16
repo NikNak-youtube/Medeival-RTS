@@ -1371,6 +1371,7 @@ class Game:
         self._draw_buildings()
         self._draw_effects()
         self._draw_units()
+        self._draw_movement_lines()
         self._draw_selection_rect()
         self._draw_building_preview()
         self._draw_hud()
@@ -1501,6 +1502,46 @@ class Game:
             blood.set_alpha(effect.get_alpha())
             rect = blood.get_rect(center=screen_pos)
             self.screen.blit(blood, rect)
+
+    def _draw_movement_lines(self):
+        """Draw 80% transparent white lines showing where selected units are moving."""
+        if not self.selected_units:
+            return
+
+        # Create a single surface for all movement lines (more efficient)
+        line_surface = pygame.Surface((SCREEN_WIDTH, SCREEN_HEIGHT), pygame.SRCALPHA)
+        line_color = (255, 255, 255, 51)  # 80% transparent white (alpha = 51)
+
+        for unit in self.selected_units:
+            # Determine the target position
+            target_x, target_y = None, None
+
+            if unit.target_unit and unit.target_unit.is_alive():
+                # Moving to attack a unit
+                target_x, target_y = unit.target_unit.x, unit.target_unit.y
+            elif unit.target_building and not unit.target_building.is_destroyed():
+                # Moving to attack/interact with a building
+                target_x, target_y = unit.target_building.x, unit.target_building.y
+            elif unit.attack_move_target:
+                # Attack-move destination
+                target_x, target_y = unit.attack_move_target
+            elif unit.target_x is not None and unit.target_y is not None:
+                # Simple move target
+                target_x, target_y = unit.target_x, unit.target_y
+
+            if target_x is not None and target_y is not None:
+                # Convert to screen coordinates
+                start_pos = self.camera.world_to_screen(unit.x, unit.y)
+                end_pos = self.camera.world_to_screen(target_x, target_y)
+
+                # Draw line from unit to destination
+                pygame.draw.line(line_surface, line_color, start_pos, end_pos, 2)
+
+                # Draw a small circle at the destination
+                pygame.draw.circle(line_surface, line_color, end_pos, 8, 2)
+
+        # Blit the line surface once
+        self.screen.blit(line_surface, (0, 0))
 
     def _draw_selection_rect(self):
         """Draw selection rectangle."""
