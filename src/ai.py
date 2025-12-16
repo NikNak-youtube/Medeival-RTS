@@ -77,6 +77,11 @@ class AIBot:
         self.castle_under_attack = False
         self.castle_attackers: List[Unit] = []
 
+        # Overwhelming force attack tracking (Hard+)
+        # Prevents continuously sending units after a failed all-out attack
+        self.overwhelming_attack_attempted = False
+        self.overwhelming_attack_threshold = 0  # Military count when attack was triggered
+
     @property
     def resources(self) -> Resources:
         """Get AI resources."""
@@ -624,8 +629,16 @@ class AIBot:
 
         # Hard+: If we have overwhelming force (2x enemy military), attack the castle directly
         if self.difficulty in [Difficulty.HARD, Difficulty.BRUTAL]:
+            # Reset the overwhelming attack flag if we've rebuilt a significantly larger army
+            # (at least 50% more than when we last attempted)
+            if self.overwhelming_attack_attempted:
+                if military_count >= self.overwhelming_attack_threshold * 1.5:
+                    self.overwhelming_attack_attempted = False
+
             # Need at least some military and double the enemy's force
-            if military_count >= 4 and military_count >= enemy_military_count * 2:
+            # Don't trigger if we already attempted an overwhelming attack and failed
+            if (military_count >= 4 and military_count >= enemy_military_count * 2
+                    and not self.overwhelming_attack_attempted):
                 # Only trigger if not already attacking
                 if self.state != 'attacking' and self.state_change_cooldown <= 0:
                     # Find and target the enemy castle directly
@@ -639,6 +652,9 @@ class AIBot:
                         self.attack_target = (enemy_castle.x, enemy_castle.y)
                         self._change_state('attacking')
                         self._setup_attack()
+                        # Mark that we've attempted an overwhelming attack
+                        self.overwhelming_attack_attempted = True
+                        self.overwhelming_attack_threshold = military_count
 
     def _emergency_military_spending(self):
         """Spend all available resources on military units when castle is under attack."""
@@ -774,6 +790,17 @@ class AIBot:
 
     def _execute_attack_orders(self):
         """Execute attack orders for military units."""
+        military_count = len(self.military_units)
+        enemy_military_count = len(self.enemy_military_units)
+
+        # Safety check: If we have less than half the enemy's military,
+        # abort the attack and retreat (unless our base is under attack)
+        if enemy_military_count > 0 and military_count < enemy_military_count * 0.5:
+            if not self.castle_under_attack:
+                # We're outmatched, cancel attack and go back to building
+                self._change_state('building')
+                return
+
         # Phase 1: Gather army at rally point (Normal+ only)
         if not self.army_gathered and self.rally_point:
             self._execute_gather_phase()
