@@ -55,8 +55,19 @@ UNIT_COSTS = {
     'peasant': {'gold': 50, 'food': 25},
     'knight': {'gold': 150, 'food': 50},
     'cavalry': {'gold': 200, 'food': 75},
-    'cannon': {'gold': 300, 'food': 0}
+    'cannon': {'gold': 300, 'food': 0, 'wood': 100}
 }
+
+# Build time in seconds (for buildings and cannons)
+BUILD_TIMES = {
+    'house': 10.0,
+    'farm': 8.0,
+    'castle': 30.0,
+    'cannon': 5.0
+}
+
+# Refund percentage when deconstructing
+DECONSTRUCT_REFUND = 0.7
 
 UNIT_STATS = {
     'peasant': {

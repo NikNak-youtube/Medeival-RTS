@@ -12,8 +12,8 @@ from .constants import (
     SCREEN_WIDTH, SCREEN_HEIGHT, MAP_WIDTH, MAP_HEIGHT, TILE_SIZE, FPS,
     WHITE, BLACK, RED, GREEN, GOLD, GRAY, DARK_GRAY, LIGHT_GRAY, BROWN, YELLOW,
     GameState, UnitType, BuildingType, Team, Difficulty, DIFFICULTY_SETTINGS,
-    UNIT_COSTS, BUILDING_COSTS, RESOURCE_TICK_INTERVAL,
-    FOOD_CONSUMPTION_INTERVAL, FOOD_PER_UNIT, STARVATION_DAMAGE
+    UNIT_COSTS, BUILDING_COSTS, RESOURCE_TICK_INTERVAL, BUILD_TIMES, DECONSTRUCT_REFUND,
+    FOOD_CONSUMPTION_INTERVAL, FOOD_PER_UNIT, STARVATION_DAMAGE, WORKER_RANGE
 )
 from .assets import AssetManager, ModManager, get_unit_asset_name, get_building_asset_name
 from .entities import Unit, Building, BloodEffect, Resources
@@ -70,6 +70,9 @@ class Game:
 
         # Building placement
         self.placing_building: Optional[BuildingType] = None
+
+        # Attack-move mode
+        self.attack_move_mode = False
 
         # AI and networking
         self.ai_bot: Optional[AIBot] = None
@@ -251,6 +254,10 @@ class Game:
             if event.type == pygame.KEYDOWN:
                 if self.state == GameState.PLAYING:
                     self._handle_game_keys(event)
+                elif self.state == GameState.GAME_OVER:
+                    if event.key == pygame.K_ESCAPE:
+                        self.state = GameState.MAIN_MENU
+                        self.network.close()
 
             # Text input events
             if self.state in [GameState.MULTIPLAYER_LOBBY, GameState.CONNECTING]:
@@ -413,6 +420,16 @@ class Game:
         elif event.key == pygame.K_n:
             self._train_unit(UnitType.CANNON)
 
+        # Attack-move mode
+        elif event.key == pygame.K_a:
+            if self.selected_units:
+                self.attack_move_mode = True
+
+        # Deconstruct selected building
+        elif event.key == pygame.K_x:
+            if self.selected_building and self.selected_building.team == Team.PLAYER:
+                self._deconstruct_building(self.selected_building)
+
         # Delete selected
         elif event.key == pygame.K_DELETE:
             for unit in self.selected_units[:]:
@@ -505,6 +522,7 @@ class Game:
         target_unit = None
         target_building = None
         friendly_building = None
+        under_construction = None
 
         # Check for enemy unit target
         for unit in self.units:
@@ -518,6 +536,8 @@ class Game:
                 if building.get_rect().collidepoint(world_pos):
                     if building.team == Team.ENEMY:
                         target_building = building
+                    elif not building.completed:
+                        under_construction = building
                     else:
                         friendly_building = building
                     break
@@ -527,16 +547,28 @@ class Game:
             # Unassign peasant from current building when given new orders
             if unit.unit_type == UnitType.PEASANT and unit.assigned_building:
                 unit.unassign_from_building()
+            if unit.unit_type == UnitType.PEASANT and unit.constructing_building:
+                unit.constructing_building = None
 
-            if target_unit:
+            if self.attack_move_mode:
+                # Attack-move: move towards target, attack enemies along the way
+                unit.set_attack_move_target(world_pos[0], world_pos[1])
+            elif target_unit:
                 unit.set_attack_target(target_unit)
             elif target_building:
                 unit.set_building_target(target_building)
+            elif under_construction and unit.unit_type == UnitType.PEASANT:
+                # Assign peasant to construct building
+                unit.constructing_building = under_construction
+                unit.set_move_target(under_construction.x, under_construction.y)
             elif friendly_building and unit.unit_type == UnitType.PEASANT:
                 # Assign peasant to work at friendly building
                 unit.assign_to_building(friendly_building)
             else:
                 unit.set_move_target(world_pos[0], world_pos[1])
+
+        # Reset attack-move mode
+        self.attack_move_mode = False
 
         # Network sync
         if self.is_multiplayer and self.network.connected:
@@ -581,7 +613,7 @@ class Game:
         self.units.append(unit)
 
     def _place_building(self, world_pos: Tuple[float, float]):
-        """Place a building."""
+        """Place a building foundation (requires peasant to construct)."""
         if not self.placing_building:
             return
 
@@ -600,9 +632,43 @@ class Game:
             _mod_manager=self.mod_manager
         )
         building.uid = self.next_uid()
+        # Building starts incomplete - peasants must construct it
+        building.completed = False
+        building.build_progress = 0.0
         self.buildings.append(building)
 
         self.placing_building = None
+
+    def _deconstruct_building(self, building: Building):
+        """Deconstruct a building and refund resources."""
+        if building.building_type == BuildingType.CASTLE:
+            # Cannot deconstruct castle
+            return
+
+        cost_key = building.building_type.name.lower()
+        cost = self.mod_manager.get_building_costs(cost_key)
+
+        # Refund percentage of resources (scaled by remaining health)
+        health_ratio = building.health / building.max_health
+        refund_ratio = DECONSTRUCT_REFUND * health_ratio
+
+        refund_gold = int(cost.get('gold', 0) * refund_ratio)
+        refund_wood = int(cost.get('wood', 0) * refund_ratio)
+
+        self.player_resources.gold += refund_gold
+        self.player_resources.wood += refund_wood
+
+        # Unassign any workers from this building
+        for unit in self.units:
+            if unit.assigned_building == building:
+                unit.unassign_from_building()
+            if unit.constructing_building == building:
+                unit.constructing_building = None
+
+        # Remove building
+        self.buildings.remove(building)
+        if self.selected_building == building:
+            self.selected_building = None
 
     # =========================================================================
     # UPDATE
@@ -642,6 +708,9 @@ class Game:
 
         # Update worker status for peasants
         self._update_workers()
+
+        # Update building construction
+        self._update_construction()
 
         # Update effects
         self._update_effects()
@@ -685,7 +754,11 @@ class Game:
             if unit.target_unit is None and unit.target_building is None:
                 # Military units (knights, cavalry, cannons) have larger aggro range
                 is_military = unit.unit_type in [UnitType.KNIGHT, UnitType.CAVALRY, UnitType.CANNON]
-                aggro_range = unit.attack_range * 3 if is_military else unit.attack_range * 1.5
+                # Attack-move units always look for targets
+                is_attack_moving = unit.attack_move_target is not None
+                aggro_range = unit.attack_range * 4 if is_attack_moving else (
+                    unit.attack_range * 3 if is_military else unit.attack_range * 1.5
+                )
 
                 # Find nearest enemy in range
                 nearest_enemy = None
@@ -698,15 +771,27 @@ class Game:
                             nearest_enemy = other
 
                 if nearest_enemy:
+                    # Save attack-move target so we can resume after killing
                     unit.set_attack_target(nearest_enemy)
-                # Military units also auto-attack nearby buildings if no units around
-                elif is_military and not unit.assigned_building:
+                # Military units and attack-moving units also attack nearby buildings
+                elif (is_military or is_attack_moving) and not unit.assigned_building:
                     for building in self.buildings:
                         if building.team != unit.team:
                             dist = unit.distance_to_building(building)
                             if dist <= unit.attack_range * 2:
                                 unit.set_building_target(building)
                                 break
+
+            # Resume attack-move if target was killed
+            if unit.attack_move_target:
+                if unit.target_unit is None and unit.target_building is None:
+                    # Resume moving to attack-move destination
+                    if unit.target_x is None:
+                        unit.target_x, unit.target_y = unit.attack_move_target
+                    # Check if reached destination
+                    dest_x, dest_y = unit.attack_move_target
+                    if unit.distance_to(dest_x, dest_y) < 20:
+                        unit.attack_move_target = None
 
             # Remove dead units
             if not unit.is_alive():
@@ -739,8 +824,39 @@ class Game:
                 # Check if assigned building still exists
                 if unit.assigned_building and unit.assigned_building not in self.buildings:
                     unit.unassign_from_building()
+                # Check if constructing building still exists
+                if unit.constructing_building and unit.constructing_building not in self.buildings:
+                    unit.constructing_building = None
                 # Update work status
                 unit.update_work_status()
+
+    def _update_construction(self):
+        """Update building construction progress."""
+        for building in self.buildings:
+            if not building.completed and building.team == Team.PLAYER:
+                # Count peasants constructing this building
+                builders = 0
+                for unit in self.units:
+                    if (unit.unit_type == UnitType.PEASANT and
+                        unit.constructing_building == building and
+                        unit.distance_to_building(building) <= WORKER_RANGE):
+                        builders += 1
+
+                if builders > 0:
+                    # Each builder adds progress (more builders = faster)
+                    type_key = building.building_type.name.lower()
+                    build_time = BUILD_TIMES.get(type_key, 10.0)
+                    # Progress per second per builder (diminishing returns)
+                    progress_rate = (100.0 / build_time) * (1 + 0.5 * (builders - 1))
+                    building.build_progress += progress_rate * self.dt
+
+                    if building.build_progress >= 100.0:
+                        building.build_progress = 100.0
+                        building.completed = True
+                        # Unassign builders
+                        for unit in self.units:
+                            if unit.constructing_building == building:
+                                unit.constructing_building = None
 
     def _update_effects(self):
         """Update visual effects."""
@@ -755,6 +871,10 @@ class Game:
             self.resource_timer = 0
 
             for building in self.buildings:
+                # Only completed buildings generate resources
+                if not building.completed:
+                    continue
+
                 # Get resource generation based on workers
                 gen = building.get_resource_generation(self.units)
 
@@ -876,21 +996,20 @@ class Game:
         # Instructions
         instructions = [
             "Controls:",
-            "WASD/Arrow Keys - Move camera",
-            "Left Click - Select units",
-            "Right Click - Move/Attack/Assign workers",
-            "H - Build House, F - Build Farm",
-            "P - Train Peasant, K - Train Knight",
+            "WASD/Arrow - Camera | Left Click - Select | Right Click - Command",
+            "H - House | F - Farm | P - Peasant | K - Knight | C - Cavalry | N - Cannon",
+            "A + Right Click - Attack-move | X - Deconstruct building (70% refund)",
             "",
-            "IMPORTANT: Assign peasants to buildings for production!",
+            "Peasants must construct new buildings! Right-click to assign.",
+            "Assign peasants to buildings for resource production.",
             "Units consume food - build farms or starve!"
         ]
 
-        y = 520
+        y = 600
         for line in instructions:
             text = self.font.render(line, True, LIGHT_GRAY)
-            self.screen.blit(text, (SCREEN_WIDTH // 2 - 180, y))
-            y += 22
+            self.screen.blit(text, (SCREEN_WIDTH // 2 - 260, y))
+            y += 20
 
     def _draw_lobby(self):
         """Draw multiplayer lobby."""
@@ -1036,6 +1155,18 @@ class Game:
                 pygame.draw.circle(self.screen, BLACK,
                                  (screen_pos[0] + 15, screen_pos[1] - 15), 6, 1)
 
+            # Construction indicator for peasants
+            if unit.unit_type == UnitType.PEASANT and unit.constructing_building:
+                # Draw hammer icon (brown circle with outline)
+                pygame.draw.circle(self.screen, BROWN,
+                                 (screen_pos[0] + 15, screen_pos[1] - 15), 6)
+                pygame.draw.circle(self.screen, BLACK,
+                                 (screen_pos[0] + 15, screen_pos[1] - 15), 6, 1)
+
+            # Attack-move indicator
+            if unit.attack_move_target:
+                pygame.draw.circle(self.screen, RED, screen_pos, 25, 2)
+
             # Health bar
             draw_health_bar(self.screen, screen_pos, unit.health, unit.max_health, 40)
 
@@ -1045,10 +1176,13 @@ class Game:
             screen_pos = self.camera.world_to_screen(building.x, building.y)
 
             asset_name = get_building_asset_name(building.building_type)
-            sprite = self.assets.get(asset_name)
+            sprite = self.assets.get(asset_name).copy()
+
+            # Make incomplete buildings semi-transparent
+            if not building.completed:
+                sprite.set_alpha(128)
 
             if building.team == Team.ENEMY:
-                sprite = sprite.copy()
                 sprite.fill((255, 100, 100), special_flags=pygame.BLEND_MULT)
 
             rect = sprite.get_rect(center=screen_pos)
@@ -1057,8 +1191,27 @@ class Game:
             if building.selected:
                 pygame.draw.rect(self.screen, GREEN, rect.inflate(10, 10), 3)
 
-            # Draw worker count for player buildings
-            if building.team == Team.PLAYER:
+            # Draw construction progress for incomplete buildings
+            if not building.completed and building.team == Team.PLAYER:
+                # Progress bar
+                bar_width = rect.width
+                bar_height = 8
+                bar_x = screen_pos[0] - bar_width // 2
+                bar_y = screen_pos[1] + rect.height // 2 + 5
+                # Background
+                pygame.draw.rect(self.screen, DARK_GRAY, (bar_x, bar_y, bar_width, bar_height))
+                # Progress fill
+                progress_width = int(bar_width * building.build_progress / 100)
+                pygame.draw.rect(self.screen, YELLOW, (bar_x, bar_y, progress_width, bar_height))
+                # Border
+                pygame.draw.rect(self.screen, BLACK, (bar_x, bar_y, bar_width, bar_height), 1)
+                # Text
+                progress_text = f"{int(building.build_progress)}%"
+                text_surf = self.font.render(progress_text, True, WHITE)
+                text_rect = text_surf.get_rect(center=(screen_pos[0], bar_y + bar_height + 10))
+                self.screen.blit(text_surf, text_rect)
+            # Draw worker count for completed player buildings
+            elif building.team == Team.PLAYER and building.completed:
                 workers = building.count_workers(self.units)
                 max_workers = building.get_max_workers()
                 if max_workers > 0:

@@ -5,7 +5,7 @@ Game entities: Units, Buildings, Resources, and Effects.
 import math
 import pygame
 from dataclasses import dataclass, field
-from typing import Optional, TYPE_CHECKING
+from typing import Optional, Tuple, TYPE_CHECKING
 
 from .constants import (
     UnitType, BuildingType, Team, MAP_WIDTH, MAP_HEIGHT,
@@ -81,9 +81,15 @@ class Unit:
     target_unit: Optional['Unit'] = None
     target_building: Optional['Building'] = None
 
+    # Attack-move state
+    attack_move_target: Optional[Tuple[float, float]] = None
+
     # Worker assignment (for peasants)
     assigned_building: Optional['Building'] = field(default=None, repr=False)
     is_working: bool = False
+
+    # Building assignment (for peasants constructing)
+    constructing_building: Optional['Building'] = field(default=None, repr=False)
 
     # Reference to mod manager for stat lookups
     _mod_manager: Optional['ModManager'] = field(default=None, repr=False)
@@ -171,6 +177,15 @@ class Unit:
         """Clear all targets."""
         self.target_x = None
         self.target_y = None
+        self.target_unit = None
+        self.target_building = None
+        self.attack_move_target = None
+
+    def set_attack_move_target(self, x: float, y: float):
+        """Set attack-move target - will attack enemies encountered while moving."""
+        self.attack_move_target = (x, y)
+        self.target_x = x
+        self.target_y = y
         self.target_unit = None
         self.target_building = None
 
