@@ -215,6 +215,7 @@ class GameState(Enum):
     WAITING_FOR_ACCEPT = auto()
     SETTINGS = auto()
     DIFFICULTY_SELECT = auto()
+    HOW_TO_PLAY = auto()
 
 
 class UnitType(Enum):

@@ -107,12 +107,16 @@ class Game:
         """Initialize UI components."""
         # Main menu buttons
         self.menu_buttons = [
-            Button(SCREEN_WIDTH // 2 - 150, 250, 300, 50, "Play vs AI"),
-            Button(SCREEN_WIDTH // 2 - 150, 320, 300, 50, "Host Multiplayer"),
-            Button(SCREEN_WIDTH // 2 - 150, 390, 300, 50, "Join Multiplayer"),
-            Button(SCREEN_WIDTH // 2 - 150, 460, 300, 50, "Settings"),
-            Button(SCREEN_WIDTH // 2 - 150, 530, 300, 50, "Quit")
+            Button(SCREEN_WIDTH // 2 - 150, 220, 300, 50, "Play vs AI"),
+            Button(SCREEN_WIDTH // 2 - 150, 285, 300, 50, "Host Multiplayer"),
+            Button(SCREEN_WIDTH // 2 - 150, 350, 300, 50, "Join Multiplayer"),
+            Button(SCREEN_WIDTH // 2 - 150, 415, 300, 50, "How to Play"),
+            Button(SCREEN_WIDTH // 2 - 150, 480, 300, 50, "Settings"),
+            Button(SCREEN_WIDTH // 2 - 150, 545, 300, 50, "Quit")
         ]
+
+        # How to Play back button
+        self.how_to_play_back_button = Button(SCREEN_WIDTH // 2 - 75, SCREEN_HEIGHT - 60, 150, 40, "Back")
 
         # Difficulty selection buttons (spaced for descriptions)
         self.difficulty_buttons = [
@@ -282,6 +286,8 @@ class Game:
             self._handle_difficulty_input(mouse_pos, mouse_clicked)
         elif self.state == GameState.SETTINGS:
             self._handle_settings_input(mouse_pos, mouse_clicked)
+        elif self.state == GameState.HOW_TO_PLAY:
+            self._handle_how_to_play_input(mouse_pos, mouse_clicked)
 
     def _handle_menu_input(self, mouse_pos: Tuple[int, int], clicked: bool):
         """Handle main menu input."""
@@ -298,8 +304,10 @@ class Game:
             elif self.menu_buttons[2].is_clicked(mouse_pos, True):
                 self.state = GameState.MULTIPLAYER_LOBBY
             elif self.menu_buttons[3].is_clicked(mouse_pos, True):
-                self.state = GameState.SETTINGS
+                self.state = GameState.HOW_TO_PLAY
             elif self.menu_buttons[4].is_clicked(mouse_pos, True):
+                self.state = GameState.SETTINGS
+            elif self.menu_buttons[5].is_clicked(mouse_pos, True):
                 self.running = False
 
     def _handle_difficulty_input(self, mouse_pos: Tuple[int, int], clicked: bool):
@@ -350,6 +358,14 @@ class Game:
             self.grid_snap_button.text = "Grid Snap: On"
         else:
             self.grid_snap_button.text = "Grid Snap: Off"
+
+    def _handle_how_to_play_input(self, mouse_pos: Tuple[int, int], clicked: bool):
+        """Handle how to play screen input."""
+        self.how_to_play_back_button.update(mouse_pos)
+
+        if clicked:
+            if self.how_to_play_back_button.is_clicked(mouse_pos, True):
+                self.state = GameState.MAIN_MENU
 
     def _handle_lobby_input(self, mouse_pos: Tuple[int, int], clicked: bool):
         """Handle multiplayer lobby input."""
@@ -1222,6 +1238,8 @@ class Game:
             self._draw_difficulty_select()
         elif self.state == GameState.SETTINGS:
             self._draw_settings()
+        elif self.state == GameState.HOW_TO_PLAY:
+            self._draw_how_to_play()
 
         pygame.display.flip()
 
@@ -1247,24 +1265,6 @@ class Game:
             mod_text = f"Loaded mods: {len(self.mod_manager.loaded_mods)}"
             mod_surf = self.font.render(mod_text, True, LIGHT_GRAY)
             self.screen.blit(mod_surf, (10, SCREEN_HEIGHT - 30))
-
-        # Instructions
-        instructions = [
-            "Controls:",
-            "WASD/Arrow - Camera | Left Click - Select | Right Click - Command",
-            "H - House | F - Farm | P - Peasant | K - Knight | C - Cavalry | N - Cannon",
-            "A + Right Click - Attack-move | X - Deconstruct building (70% refund)",
-            "",
-            "Peasants must construct new buildings! Right-click to assign.",
-            "Assign peasants to buildings for resource production.",
-            "Units consume food - build farms or starve!"
-        ]
-
-        y = 600
-        for line in instructions:
-            text = self.font.render(line, True, LIGHT_GRAY)
-            self.screen.blit(text, (SCREEN_WIDTH // 2 - 260, y))
-            y += 20
 
     def _draw_lobby(self):
         """Draw multiplayer lobby."""
@@ -1364,6 +1364,99 @@ class Game:
         hint2 = self.font.render("Press G in-game to toggle grid snapping", True, LIGHT_GRAY)
         hint2_rect = hint2.get_rect(center=(SCREEN_WIDTH // 2, 565))
         self.screen.blit(hint2, hint2_rect)
+
+    def _draw_how_to_play(self):
+        """Draw how to play screen with game instructions."""
+        self.screen.fill(DARK_GRAY)
+
+        # Title
+        title = self.large_font.render("How to Play", True, GOLD)
+        title_rect = title.get_rect(center=(SCREEN_WIDTH // 2, 40))
+        self.screen.blit(title, title_rect)
+
+        # Two-column layout
+        left_x = 60
+        right_x = SCREEN_WIDTH // 2 + 40
+        y_start = 80
+
+        # Left column - Controls
+        y = y_start
+        self.screen.blit(self.large_font.render("Controls", True, WHITE), (left_x, y))
+        y += 40
+
+        controls = [
+            ("Camera", "WASD / Arrow Keys / Mouse Edge"),
+            ("Select Units", "Left Click / Drag Box"),
+            ("Move/Attack", "Right Click"),
+            ("Attack-Move", "A + Right Click"),
+            ("Stop/Cancel", "S"),
+            ("", ""),
+            ("Train Peasant", "P"),
+            ("Train Knight", "K"),
+            ("Train Cavalry", "C"),
+            ("Train Cannon", "N"),
+            ("", ""),
+            ("Build House", "H"),
+            ("Build Farm", "F"),
+            ("Build Tower", "T"),
+            ("Grid Snap", "G"),
+            ("Deconstruct", "X"),
+            ("", ""),
+            ("Fullscreen", "F11"),
+            ("Return to Menu", "ESC"),
+        ]
+
+        for action, key in controls:
+            if action:
+                action_surf = self.font.render(action, True, LIGHT_GRAY)
+                key_surf = self.font.render(key, True, WHITE)
+                self.screen.blit(action_surf, (left_x, y))
+                self.screen.blit(key_surf, (left_x + 140, y))
+            y += 22
+
+        # Right column - Game Mechanics
+        y = y_start
+        self.screen.blit(self.large_font.render("Game Mechanics", True, WHITE), (right_x, y))
+        y += 40
+
+        mechanics = [
+            "OBJECTIVE:",
+            "  Destroy the enemy castle to win!",
+            "",
+            "RESOURCES:",
+            "  Gold - Used for all units/buildings",
+            "  Food - Consumed by units over time",
+            "  Wood - Used for buildings and cannons",
+            "",
+            "BUILDINGS:",
+            "  Castle - Train units (starting building)",
+            "  House - Workers generate gold",
+            "  Farm - Workers generate food & wood",
+            "  Tower - Attacks enemies (needs 2 workers)",
+            "",
+            "CONSTRUCTION:",
+            "  1. Click building button (H/F/T)",
+            "  2. Click to place foundation",
+            "  3. Right-click peasant on foundation",
+            "  4. Peasant will construct building",
+            "",
+            "WORKERS:",
+            "  Right-click peasant on completed building",
+            "  to assign as worker for resources.",
+            "",
+            "STARVATION:",
+            "  If food runs out, units take damage!",
+            "  Build farms and assign workers!",
+        ]
+
+        for line in mechanics:
+            color = GOLD if line.endswith(":") else LIGHT_GRAY
+            text_surf = self.font.render(line, True, color)
+            self.screen.blit(text_surf, (right_x, y))
+            y += 20
+
+        # Back button
+        self.how_to_play_back_button.draw(self.screen)
 
     def _draw_game(self):
         """Draw the game world."""
