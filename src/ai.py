@@ -64,6 +64,15 @@ class AIBot:
         self.army_gathered = False
         self.gather_timer = 0.0  # Time spent waiting for army to gather
 
+        # State change cooldown - prevent rapid switching between attack/defend
+        self.state_change_cooldown = 0.0
+        self.state_change_cooldown_duration = 8.0  # Seconds before can switch states
+
+        # Battle commitment tracking
+        self.battle_committed = False  # Once true, units won't retreat easily
+        self.initial_attack_force = 0  # Number of units when attack started
+        self.units_lost_in_battle = 0  # Track casualties during current attack
+
     @property
     def resources(self) -> Resources:
         """Get AI resources."""
@@ -284,6 +293,10 @@ class AIBot:
         """Update AI logic."""
         self.think_timer += dt
 
+        # Update state change cooldown
+        if self.state_change_cooldown > 0:
+            self.state_change_cooldown -= dt
+
         # Think at intervals adjusted by difficulty
         think_speed = self.settings['think_speed']
         effective_interval = self.think_interval / think_speed
@@ -294,8 +307,38 @@ class AIBot:
         # Apply resource bonus for harder difficulties
         self._apply_resource_bonus(dt)
 
+        # Track battle commitment and casualties
+        self._update_battle_status()
+
         # Always execute current orders
         self.execute_orders(dt)
+
+    def _update_battle_status(self):
+        """Update battle commitment and track casualties."""
+        if self.state != 'attacking':
+            return
+
+        military = self.military_units
+        current_force = len(military)
+
+        # Check if we've become committed to battle
+        # Committed when units are engaged in combat near the target
+        if not self.battle_committed and self.attack_target:
+            engaged_near_target = 0
+            for unit in military:
+                # Check if unit is fighting near the attack target
+                dist_to_target = unit.distance_to(self.attack_target[0], self.attack_target[1])
+                if dist_to_target < 400 and unit.target_unit and unit.target_unit.is_alive():
+                    engaged_near_target += 1
+
+            # Commit to battle if at least 3 units are engaged near target
+            if engaged_near_target >= 3:
+                self.battle_committed = True
+                self.initial_attack_force = current_force
+
+        # Track casualties if committed
+        if self.battle_committed and self.initial_attack_force > 0:
+            self.units_lost_in_battle = self.initial_attack_force - current_force
 
     def _apply_resource_bonus(self, dt: float):
         """Apply resource bonus based on difficulty."""
@@ -329,19 +372,60 @@ class AIBot:
         if not castle:
             return
 
-        # Check for nearby enemies
+        # Check for nearby enemies threatening the base
         nearby_enemies = [
             u for u in self.enemy_units
             if u.distance_to(castle.x, castle.y) < 300
         ]
 
-        if len(nearby_enemies) >= 2:
-            self.state = 'defending'
-            # Cancel attack when defending
-            self._cancel_attack()
+        # Determine if we should switch to defending
+        should_defend = len(nearby_enemies) >= 2
+
+        # If currently attacking, check if we should retreat
+        if self.state == 'attacking' and should_defend:
+            # Check cooldown - don't switch states too rapidly
+            if self.state_change_cooldown > 0:
+                return  # Still in cooldown, maintain current state
+
+            # If committed to battle, only retreat if losing badly
+            if self.battle_committed:
+                # Calculate if we're losing the battle
+                # Retreat if we've lost more than 40% of our attacking force
+                if self.initial_attack_force > 0:
+                    loss_ratio = self.units_lost_in_battle / self.initial_attack_force
+                    if loss_ratio < 0.4:
+                        # Not losing badly enough to retreat, keep fighting
+                        return
+
+            # Switch to defending
+            self._change_state('defending')
             self.attack_target = (castle.x, castle.y)  # Set defense target
-        elif len(self.military_units) >= int(4 * self.aggression + 2) and self.state != 'defending':
-            self.state = 'attacking'
+
+        elif should_defend and self.state != 'attacking':
+            # Not attacking, can switch to defend freely
+            if self.state != 'defending':
+                self._change_state('defending')
+                self.attack_target = (castle.x, castle.y)
+
+        elif not should_defend and self.state == 'defending':
+            # Threat is gone, can go back to building
+            if self.state_change_cooldown <= 0:
+                self._change_state('building')
+
+    def _change_state(self, new_state: str):
+        """Change AI state with cooldown."""
+        old_state = self.state
+        self.state = new_state
+
+        # Set cooldown to prevent rapid switching
+        self.state_change_cooldown = self.state_change_cooldown_duration
+
+        # Reset battle tracking when leaving attack state
+        if old_state == 'attacking' and new_state != 'attacking':
+            self._cancel_attack()
+            self.battle_committed = False
+            self.initial_attack_force = 0
+            self.units_lost_in_battle = 0
 
     def _cancel_flanking(self):
         """Cancel flanking strategy and reset related state."""
@@ -504,9 +588,15 @@ class AIBot:
             # Normal+ requires both threshold AND army advantage over player
             can_attack = military_count >= attack_threshold and military_count > enemy_military_count
 
-        if can_attack and self.state != 'defending':
-            self.state = 'attacking'
-            self._choose_attack_target()
+        # Only start attack if not already attacking and not in cooldown
+        if can_attack and self.state != 'defending' and self.state != 'attacking':
+            if self.state_change_cooldown <= 0:
+                self._change_state('attacking')
+                self._choose_attack_target()
+                # Initialize battle tracking
+                self.battle_committed = False
+                self.initial_attack_force = military_count
+                self.units_lost_in_battle = 0
 
     def _choose_attack_target(self):
         """Choose a target to attack."""
