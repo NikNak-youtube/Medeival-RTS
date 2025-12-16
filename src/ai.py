@@ -622,6 +622,24 @@ class AIBot:
         if military_count >= 4 and cannons < max_cannons and random.random() < self.aggression * 0.3:
             self._try_train_unit(UnitType.CANNON)
 
+        # Hard+: If we have overwhelming force (2x enemy military), attack the castle directly
+        if self.difficulty in [Difficulty.HARD, Difficulty.BRUTAL]:
+            # Need at least some military and double the enemy's force
+            if military_count >= 4 and military_count >= enemy_military_count * 2:
+                # Only trigger if not already attacking
+                if self.state != 'attacking' and self.state_change_cooldown <= 0:
+                    # Find and target the enemy castle directly
+                    enemy_castle = None
+                    for building in self.enemy_buildings:
+                        if building.building_type == BuildingType.CASTLE:
+                            enemy_castle = building
+                            break
+
+                    if enemy_castle:
+                        self.attack_target = (enemy_castle.x, enemy_castle.y)
+                        self._change_state('attacking')
+                        self._setup_attack()
+
     def _emergency_military_spending(self):
         """Spend all available resources on military units when castle is under attack."""
         # Keep spawning units as fast as possible while we have resources
