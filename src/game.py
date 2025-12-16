@@ -855,6 +855,10 @@ class Game:
         current_time = time.time()
 
         for unit in self.units[:]:
+            # Check if unit is colliding with a building (40% slowdown)
+            building_collision = self._is_unit_colliding_with_building(unit)
+            speed_mult = 0.6 if building_collision else 1.0  # 40% slowdown when in building
+
             # Movement and combat
             if unit.target_x is not None:
                 if unit.target_unit and unit.target_unit.is_alive():
@@ -864,7 +868,7 @@ class Game:
                             self._do_attack(unit, unit.target_unit)
                             unit.last_attack = current_time
                     else:
-                        unit.move_towards(unit.target_unit.x, unit.target_unit.y, self.dt)
+                        unit.move_towards(unit.target_unit.x, unit.target_unit.y, self.dt, speed_mult)
                 elif unit.target_building and not unit.target_building.is_destroyed():
                     dist = unit.distance_to_building(unit.target_building)
                     if dist <= unit.attack_range + 50:
@@ -872,9 +876,9 @@ class Game:
                             self._do_attack_building(unit, unit.target_building)
                             unit.last_attack = current_time
                     else:
-                        unit.move_towards(unit.target_building.x, unit.target_building.y, self.dt)
+                        unit.move_towards(unit.target_building.x, unit.target_building.y, self.dt, speed_mult)
                 else:
-                    unit.move_towards(unit.target_x, unit.target_y, self.dt)
+                    unit.move_towards(unit.target_x, unit.target_y, self.dt, speed_mult)
 
             # Auto-attack nearby enemies (military units are more aggressive)
             if unit.target_unit is None and unit.target_building is None:
@@ -943,6 +947,23 @@ class Game:
                 if u.target_building == building:
                     u.target_building = None
 
+    def _is_unit_colliding_with_building(self, unit: Unit) -> bool:
+        """Check if a unit is colliding with any building."""
+        unit_radius = unit.get_collision_radius()
+
+        for building in self.buildings:
+            bw, bh = building.get_size()
+            building_radius = max(bw, bh) * 0.4  # Slightly smaller than visual
+            min_dist = unit_radius + building_radius
+
+            dx = unit.x - building.x
+            dy = unit.y - building.y
+            dist = math.sqrt(dx * dx + dy * dy)
+
+            if dist < min_dist:
+                return True
+        return False
+
     def _update_unit_collisions(self):
         """Apply soft collision between units to push them apart."""
         push_strength = 2.0  # How strongly units push each other
@@ -986,26 +1007,7 @@ class Game:
                     other.x = max(20, min(MAP_WIDTH - 20, other.x))
                     other.y = max(20, min(MAP_HEIGHT - 20, other.y))
 
-            # Also check collision with buildings
-            for building in self.buildings:
-                bw, bh = building.get_size()
-                building_radius = max(bw, bh) * 0.4  # Slightly smaller than visual
-                min_dist = unit_radius + building_radius
-
-                dx = unit.x - building.x
-                dy = unit.y - building.y
-                dist = math.sqrt(dx * dx + dy * dy)
-
-                if dist < min_dist and dist > 0.1:
-                    # Push unit away from building (building doesn't move)
-                    overlap = min_dist - dist
-                    nx = dx / dist
-                    ny = dy / dist
-                    push_force = overlap * push_strength * self.dt * 60
-                    push_x += nx * push_force
-                    push_y += ny * push_force
-
-            # Apply accumulated push
+            # Apply accumulated push (from unit-to-unit collisions only)
             unit.x += push_x
             unit.y += push_y
             # Clamp to map bounds

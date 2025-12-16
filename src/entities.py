@@ -148,14 +148,22 @@ class Unit:
         """Calculate distance to a building."""
         return self.distance_to(building.x, building.y)
 
-    def move_towards(self, target_x: float, target_y: float, dt: float):
-        """Move towards a target position."""
+    def move_towards(self, target_x: float, target_y: float, dt: float, speed_multiplier: float = 1.0):
+        """Move towards a target position.
+
+        Args:
+            target_x: Target X coordinate
+            target_y: Target Y coordinate
+            dt: Delta time
+            speed_multiplier: Speed multiplier (e.g., 0.6 for 40% slowdown)
+        """
         dist = self.distance_to(target_x, target_y)
         if dist > 5:
             dx = (target_x - self.x) / dist
             dy = (target_y - self.y) / dist
-            self.x += dx * self.speed * dt * 60
-            self.y += dy * self.speed * dt * 60
+            effective_speed = self.speed * speed_multiplier
+            self.x += dx * effective_speed * dt * 60
+            self.y += dy * effective_speed * dt * 60
             # Clamp to map bounds
             self.x = max(20, min(MAP_WIDTH - 20, self.x))
             self.y = max(20, min(MAP_HEIGHT - 20, self.y))
