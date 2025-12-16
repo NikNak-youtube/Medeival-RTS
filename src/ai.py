@@ -980,9 +980,12 @@ class AIBot:
             self._execute_unit_attack(unit, self.attack_target)
 
         # Also handle any units not assigned to a group (newly trained)
-        all_assigned = set(self.flank_units_left + self.flank_units_right + self.main_force_units)
+        # Use UIDs for comparison since Unit objects are not hashable
+        assigned_uids = set(
+            u.uid for u in self.flank_units_left + self.flank_units_right + self.main_force_units
+        )
         for unit in self.military_units:
-            if unit not in all_assigned:
+            if unit.uid not in assigned_uids:
                 # Assign new units to main force
                 self.main_force_units.append(unit)
                 self._execute_unit_attack(unit, self.attack_target)
