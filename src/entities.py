@@ -241,6 +241,17 @@ class Unit:
         self.health -= damage
         return self.health <= 0
 
+    def heal(self, amount: int) -> bool:
+        """Heal the unit. Returns True if any healing was done."""
+        if self.health >= self.max_health:
+            return False
+        self.health = min(self.max_health, self.health + amount)
+        return True
+
+    def needs_healing(self) -> bool:
+        """Check if unit needs healing."""
+        return self.health < self.max_health
+
     def is_alive(self) -> bool:
         """Check if unit is alive."""
         return self.health > 0

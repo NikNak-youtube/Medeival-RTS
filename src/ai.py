@@ -375,6 +375,9 @@ class AIBot:
         # Military decisions
         self._military_decisions()
 
+        # Healing decisions (Normal+ only)
+        self._healing_decisions()
+
     def _assess_threats(self):
         """Assess threats to AI base."""
         castle = self.my_castle
@@ -777,6 +780,43 @@ class AIBot:
         unit = Unit(x, y, unit_type, Team.ENEMY)
         unit.uid = self.game.next_uid()
         self.game.units.append(unit)
+
+    def _healing_decisions(self):
+        """Decide whether to enable or disable healing (Normal+ only)."""
+        # Easy mode doesn't use healing
+        if self.difficulty == Difficulty.EASY:
+            return
+
+        # Check if units need healing
+        military = self.military_units
+        if not military:
+            self.game.enemy_healing_enabled = False
+            return
+
+        # Count units that need healing and calculate average health percentage
+        units_needing_healing = [u for u in military if u.needs_healing()]
+        total_health_pct = sum(u.health / u.max_health for u in military) / len(military)
+
+        # Check food stockpile - need plenty of food to enable healing
+        food_stockpile = self.resources.food
+        unit_count = len(self.my_units)
+        food_per_tick = unit_count * 2  # FOOD_PER_UNIT = 2
+        # Consider "plenty of food" as having enough for 10+ food consumption ticks
+        plenty_of_food = food_stockpile > food_per_tick * 10
+
+        # Enable healing if:
+        # - Average health is below 70% AND we have plenty of food
+        # - OR more than half the army needs healing AND we have plenty of food
+        should_heal = plenty_of_food and (
+            total_health_pct < 0.7 or
+            len(units_needing_healing) > len(military) * 0.5
+        )
+
+        # Disable healing if food is running low (less than 5 ticks worth)
+        if food_stockpile < food_per_tick * 5:
+            should_heal = False
+
+        self.game.enemy_healing_enabled = should_heal
 
     def execute_orders(self, dt: float):
         """Execute current orders for AI units."""

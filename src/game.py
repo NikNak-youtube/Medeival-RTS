@@ -100,6 +100,14 @@ class Game:
         self.grid_snap = False  # Toggle for grid snapping when placing buildings
         self.grid_size = 64  # Grid cell size for snapping
 
+        # Healing system - units consume food to heal
+        self.player_healing_enabled = False
+        self.enemy_healing_enabled = False
+        self.heal_timer = 0.0
+        self.heal_interval = 2.0  # Heal every 2 seconds when enabled
+        self.heal_amount = 5  # HP healed per tick
+        self.heal_food_cost = 3  # Food cost per unit healed
+
         # Initialize UI
         self._init_ui()
 
@@ -166,6 +174,11 @@ class Game:
         # Reset resources
         self.player_resources = Resources()
         self.enemy_resources = Resources()
+
+        # Reset healing state
+        self.player_healing_enabled = False
+        self.enemy_healing_enabled = False
+        self.heal_timer = 0.0
 
         # Reset UID counter
         self._uid_counter = 0
@@ -471,6 +484,10 @@ class Game:
             for unit in self.selected_units:
                 unit.clear_targets()
 
+        # Toggle healing
+        elif event.key == pygame.K_h:
+            self._toggle_player_healing()
+
         # Deconstruct selected building
         elif event.key == pygame.K_x:
             if self.selected_building and self.selected_building.team == Team.PLAYER:
@@ -556,8 +573,13 @@ class Game:
                 unit.clear_targets()
             return
 
-        # Menu button
+        # Heal toggle button
         if pygame.Rect(cmd_x + 150, content_y, small_btn, small_btn).collidepoint(mouse_pos):
+            self._toggle_player_healing()
+            return
+
+        # Menu button
+        if pygame.Rect(cmd_x + 200, content_y, small_btn, small_btn).collidepoint(mouse_pos):
             self.state = GameState.MAIN_MENU
             self.network.close()
             return
@@ -867,6 +889,9 @@ class Game:
 
         # Update food consumption
         self._update_food_consumption()
+
+        # Update unit healing
+        self._update_healing()
 
         # Check win/lose
         self._check_game_over()
@@ -1191,6 +1216,33 @@ class Game:
                 self.enemy_resources.food = 0
                 for unit in enemy_units:
                     unit.take_damage(STARVATION_DAMAGE)
+
+    def _update_healing(self):
+        """Update unit healing for both teams."""
+        self.heal_timer += self.dt
+        if self.heal_timer < self.heal_interval:
+            return
+        self.heal_timer = 0
+
+        # Player healing
+        if self.player_healing_enabled:
+            player_units = [u for u in self.units if u.team == Team.PLAYER and u.needs_healing()]
+            for unit in player_units:
+                if self.player_resources.food >= self.heal_food_cost:
+                    if unit.heal(self.heal_amount):
+                        self.player_resources.food -= self.heal_food_cost
+
+        # Enemy healing
+        if self.enemy_healing_enabled:
+            enemy_units = [u for u in self.units if u.team == Team.ENEMY and u.needs_healing()]
+            for unit in enemy_units:
+                if self.enemy_resources.food >= self.heal_food_cost:
+                    if unit.heal(self.heal_amount):
+                        self.enemy_resources.food -= self.heal_food_cost
+
+    def _toggle_player_healing(self):
+        """Toggle player healing on/off."""
+        self.player_healing_enabled = not self.player_healing_enabled
 
     def _handle_network_messages(self):
         """Handle incoming network messages."""
@@ -1806,12 +1858,21 @@ class Game:
         self.screen.blit(stop_text, (cmd_x + 108, content_y + 14))
         self.screen.blit(self.font.render("S", True, LIGHT_GRAY), (cmd_x + 118, content_y + 32))
 
+        # Heal toggle button (H)
+        heal_rect = pygame.Rect(cmd_x + 150, content_y, small_btn, small_btn)
+        heal_color = GREEN if self.player_healing_enabled else GRAY
+        pygame.draw.rect(self.screen, heal_color, heal_rect)
+        pygame.draw.rect(self.screen, BLACK, heal_rect, 2)
+        heal_text = self.font.render("HEL", True, WHITE)
+        self.screen.blit(heal_text, (cmd_x + 156, content_y + 14))
+        self.screen.blit(self.font.render("H", True, LIGHT_GRAY), (cmd_x + 168, content_y + 32))
+
         # Menu button (ESC)
-        menu_rect = pygame.Rect(cmd_x + 150, content_y, small_btn, small_btn)
+        menu_rect = pygame.Rect(cmd_x + 200, content_y, small_btn, small_btn)
         pygame.draw.rect(self.screen, GRAY, menu_rect)
         pygame.draw.rect(self.screen, BLACK, menu_rect, 2)
         menu_text = self.font.render("ESC", True, WHITE)
-        self.screen.blit(menu_text, (cmd_x + 156, content_y + 14))
+        self.screen.blit(menu_text, (cmd_x + 206, content_y + 14))
 
         # === CENTER SECTION: Resources (480-700px) ===
         res_x = 495
