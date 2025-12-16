@@ -582,11 +582,26 @@ class AIBot:
 
         # Build military based on resources and current army size
         if military_count < military_cap:
-            # More aggressive AIs build more cavalry
-            if self.resources.gold >= 200 and random.random() < self.aggression:
-                self._try_train_unit(UnitType.CAVALRY)
-            elif self.resources.gold >= 150:
-                self._try_train_unit(UnitType.KNIGHT)
+            if self.difficulty == Difficulty.EASY:
+                # Easy mode: old random behavior - cavalry based on aggression chance
+                if self.resources.gold >= 200 and random.random() < self.aggression:
+                    self._try_train_unit(UnitType.CAVALRY)
+                elif self.resources.gold >= 150:
+                    self._try_train_unit(UnitType.KNIGHT)
+            else:
+                # Normal+: Prefer cavalry, only train knights under specific conditions
+                knight_count = len([u for u in self.military_units if u.unit_type == UnitType.KNIGHT])
+                house_count = len([b for b in self.my_buildings if b.building_type == BuildingType.HOUSE])
+
+                # Train knights only if: under attack, have less than 5 knights, or less than 2 houses
+                under_attack = self.state == 'defending' or self.castle_under_attack
+                should_train_knights = under_attack or knight_count < 5 or house_count < 2
+
+                # Prefer cavalry in most situations (faster, more versatile)
+                if self.resources.gold >= 200:
+                    self._try_train_unit(UnitType.CAVALRY)
+                elif self.resources.gold >= 150 and should_train_knights:
+                    self._try_train_unit(UnitType.KNIGHT)
 
         # Add cannons occasionally (more on harder difficulties)
         cannons = len([u for u in self.my_units if u.unit_type == UnitType.CANNON])
