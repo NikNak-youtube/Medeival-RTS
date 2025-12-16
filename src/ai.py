@@ -48,6 +48,9 @@ class AIBot:
         self.build_queue: List[BuildingType] = []
         self.unit_queue: List[UnitType] = []
 
+        # Defense line positions for military units (calculated once castle is known)
+        self.defense_positions: List[Tuple[float, float]] = []
+
     @property
     def resources(self) -> Resources:
         """Get AI resources."""
@@ -95,6 +98,47 @@ class AIBot:
     def idle_peasants(self) -> List[Unit]:
         """Get peasants not assigned to buildings."""
         return [u for u in self.my_peasants if not u.assigned_building]
+
+    def _are_all_buildings_staffed(self) -> bool:
+        """Check if all buildings have their maximum workers assigned."""
+        for building in self.my_buildings:
+            max_workers = building.get_max_workers()
+            if max_workers > 0:  # Only check buildings that can have workers
+                current_workers = building.count_workers(self.game.units)
+                if current_workers < max_workers:
+                    return False
+        return True
+
+    def _calculate_defense_positions(self) -> List[Tuple[float, float]]:
+        """Calculate defensive line positions in front of the castle (towards player base)."""
+        castle = self.my_castle
+        if not castle:
+            return []
+
+        positions = []
+        # AI castle is in top-right, player is in bottom-left
+        # Defense line should be south-west of castle
+        defense_distance = 200  # Distance from castle to defense line
+        line_spacing = 80  # Space between units in the line
+
+        # Calculate direction towards player (south-west)
+        # Castle is at top-right, so defense line points towards bottom-left
+        center_x = castle.x - defense_distance * 0.7  # Move towards left
+        center_y = castle.y + defense_distance * 0.7  # Move towards bottom
+
+        # Create a line of positions perpendicular to the attack direction
+        num_positions = 8  # Support up to 8 units in the defense line
+        for i in range(num_positions):
+            offset = (i - num_positions // 2) * line_spacing
+            # Line runs from top-left to bottom-right (perpendicular to SW direction)
+            pos_x = center_x + offset * 0.7
+            pos_y = center_y + offset * 0.7
+            # Clamp to map bounds
+            pos_x = max(100, min(MAP_WIDTH - 100, pos_x))
+            pos_y = max(100, min(MAP_HEIGHT - 100, pos_y))
+            positions.append((pos_x, pos_y))
+
+        return positions
 
     def update(self, dt: float):
         """Update AI logic."""
@@ -198,12 +242,16 @@ class AIBot:
         max_farms = 3 + int(self.aggression * 2)
         max_houses = 2 + int(self.aggression * 2)
 
+        # For Normal+ difficulties, only build new buildings if all current ones are fully staffed
+        # Easy mode (aggression ~0.3) can build freely
+        can_build_new = self.difficulty == Difficulty.EASY or self._are_all_buildings_staffed()
+
         # Build farms first if low on food (priority)
-        if self.resources.food < 150 and farms < max_farms:
+        if self.resources.food < 150 and farms < max_farms and can_build_new:
             self._try_build_building(BuildingType.FARM)
 
         # Build houses for gold generation
-        if houses < max_houses and self.resources.gold >= 100:
+        if houses < max_houses and self.resources.gold >= 100 and can_build_new:
             self._try_build_building(BuildingType.HOUSE)
 
         # Train peasants if we have building slots to fill
@@ -319,6 +367,9 @@ class AIBot:
             self._execute_attack_orders()
         elif self.state == 'defending':
             self._execute_defend_orders()
+        elif self.state == 'building' and self.difficulty != Difficulty.EASY:
+            # For Normal+ difficulties, maintain defensive line while building up
+            self._execute_defense_line()
 
     def _execute_attack_orders(self):
         """Execute attack orders for military units."""
@@ -373,6 +424,48 @@ class AIBot:
             else:
                 # Return to defensive position
                 self.state = 'building'
+
+    def _execute_defense_line(self):
+        """Position military units in a defensive line in front of castle (Normal+ only)."""
+        castle = self.my_castle
+        if not castle:
+            return
+
+        # Calculate defense positions if not already done
+        if not self.defense_positions:
+            self.defense_positions = self._calculate_defense_positions()
+
+        military = self.military_units
+        if not military:
+            return
+
+        # Check for nearby enemies first - if enemies approach, engage them
+        for unit in military:
+            # Skip if already engaged with a target
+            if unit.target_unit and unit.target_unit.is_alive():
+                continue
+
+            # Look for enemies within engagement range of the defense line
+            enemies_nearby = [
+                e for e in self.enemy_units
+                if unit.distance_to_unit(e) < 250  # Engage enemies that get close
+            ]
+
+            if enemies_nearby:
+                # Attack the nearest enemy
+                nearest = min(enemies_nearby, key=lambda e: unit.distance_to_unit(e))
+                unit.set_attack_target(nearest)
+            else:
+                # No enemies nearby - hold position in defense line
+                # Assign each unit to a position in the line
+                unit_index = military.index(unit) % len(self.defense_positions)
+                target_pos = self.defense_positions[unit_index]
+
+                # Only move if not already at position (with some tolerance)
+                dist_to_pos = unit.distance_to(target_pos[0], target_pos[1])
+                if dist_to_pos > 30:
+                    # Move to defensive position
+                    unit.set_move_target(target_pos[0], target_pos[1])
 
     def _find_nearest_enemy(self, unit: Unit) -> Optional[Unit]:
         """Find the nearest enemy unit to the given unit."""
