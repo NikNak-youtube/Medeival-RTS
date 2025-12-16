@@ -593,12 +593,25 @@ class AIBot:
                 knight_count = len([u for u in self.military_units if u.unit_type == UnitType.KNIGHT])
                 house_count = len([b for b in self.my_buildings if b.building_type == BuildingType.HOUSE])
 
+                # Count cavalry for both sides
+                my_cavalry = len([u for u in self.military_units if u.unit_type == UnitType.CAVALRY])
+                enemy_cavalry = len([u for u in self.enemy_military_units if u.unit_type == UnitType.CAVALRY])
+
+                # Hard+: If player has 1.2x cavalry advantage, prioritize cavalry until equal
+                cavalry_emergency = False
+                if self.difficulty in [Difficulty.HARD, Difficulty.BRUTAL]:
+                    if enemy_cavalry > 0 and enemy_cavalry >= my_cavalry * 1.2:
+                        cavalry_emergency = True
+
                 # Train knights only if: under attack, have less than 5 knights, or less than 2 houses
                 under_attack = self.state == 'defending' or self.castle_under_attack
                 should_train_knights = under_attack or knight_count < 5 or house_count < 2
 
+                # Cavalry emergency: keep buying cavalry until we match the player
+                if cavalry_emergency and self.resources.gold >= 200:
+                    self._try_train_unit(UnitType.CAVALRY)
                 # Prefer cavalry in most situations (faster, more versatile)
-                if self.resources.gold >= 200:
+                elif self.resources.gold >= 200:
                     self._try_train_unit(UnitType.CAVALRY)
                 elif self.resources.gold >= 150 and should_train_knights:
                     self._try_train_unit(UnitType.KNIGHT)
