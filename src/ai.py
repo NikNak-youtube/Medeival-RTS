@@ -51,6 +51,19 @@ class AIBot:
         # Defense line positions for military units (calculated once castle is known)
         self.defense_positions: List[Tuple[float, float]] = []
 
+        # Flanking strategy (Hard+ only)
+        self.flanking_active = False
+        self.flank_target_left: Optional[Tuple[float, float]] = None
+        self.flank_target_right: Optional[Tuple[float, float]] = None
+        self.flank_units_left: List[Unit] = []
+        self.flank_units_right: List[Unit] = []
+        self.main_force_units: List[Unit] = []
+
+        # Army rally system - gather units before attacking
+        self.rally_point: Optional[Tuple[float, float]] = None
+        self.army_gathered = False
+        self.gather_timer = 0.0  # Time spent waiting for army to gather
+
     @property
     def resources(self) -> Resources:
         """Get AI resources."""
@@ -145,6 +158,128 @@ class AIBot:
 
         return positions
 
+    def _calculate_flank_positions(self, target: Tuple[float, float]) -> Tuple[Tuple[float, float], Tuple[float, float]]:
+        """Calculate flanking positions around a target (left and right flanks).
+
+        Returns two positions that approach the target from different angles.
+        """
+        castle = self.my_castle
+        if not castle:
+            return target, target
+
+        # Calculate the main attack vector (from AI castle to target)
+        dx = target[0] - castle.x
+        dy = target[1] - castle.y
+        dist = math.sqrt(dx * dx + dy * dy)
+
+        if dist < 1:
+            return target, target
+
+        # Normalize direction
+        nx, ny = dx / dist, dy / dist
+
+        # Perpendicular vectors for flanking (rotate 90 degrees)
+        perp_x, perp_y = -ny, nx
+
+        # Flank distance from main attack line
+        flank_offset = 250
+
+        # Calculate flank approach points - these are offset from the target
+        # Left flank comes from the left side
+        left_x = target[0] + perp_x * flank_offset
+        left_y = target[1] + perp_y * flank_offset
+
+        # Right flank comes from the right side
+        right_x = target[0] - perp_x * flank_offset
+        right_y = target[1] - perp_y * flank_offset
+
+        # Clamp to map bounds
+        left_x = max(100, min(MAP_WIDTH - 100, left_x))
+        left_y = max(100, min(MAP_HEIGHT - 100, left_y))
+        right_x = max(100, min(MAP_WIDTH - 100, right_x))
+        right_y = max(100, min(MAP_HEIGHT - 100, right_y))
+
+        return (left_x, left_y), (right_x, right_y)
+
+    def _should_use_flanking(self) -> bool:
+        """Determine if flanking strategy should be used."""
+        # Only Hard and Brutal use flanking
+        if self.difficulty not in [Difficulty.HARD, Difficulty.BRUTAL]:
+            return False
+
+        # Need at least 6 military units to flank effectively
+        military_count = len(self.military_units)
+        if military_count < 6:
+            return False
+
+        # Late game check - need significant army advantage or large army
+        enemy_military = len(self.enemy_military_units)
+
+        # Brutal always tries to flank with enough units
+        if self.difficulty == Difficulty.BRUTAL and military_count >= 6:
+            return True
+
+        # Hard needs army advantage and more units
+        if self.difficulty == Difficulty.HARD and military_count >= 8 and military_count > enemy_military:
+            return True
+
+        return False
+
+    def _setup_flanking_attack(self):
+        """Set up a flanking attack by dividing forces."""
+        if not self.attack_target:
+            return
+
+        military = list(self.military_units)
+        if len(military) < 6:
+            self.flanking_active = False
+            return
+
+        # Calculate flank positions
+        self.flank_target_left, self.flank_target_right = self._calculate_flank_positions(self.attack_target)
+
+        # Divide forces: cavalry to flanks (fast units), others to main
+        cavalry = [u for u in military if u.unit_type == UnitType.CAVALRY]
+        knights = [u for u in military if u.unit_type == UnitType.KNIGHT]
+        cannons = [u for u in military if u.unit_type == UnitType.CANNON]
+
+        # Clear previous assignments
+        self.flank_units_left.clear()
+        self.flank_units_right.clear()
+        self.main_force_units.clear()
+
+        # Assign cavalry to flanks (split evenly)
+        for i, cav in enumerate(cavalry):
+            if i % 2 == 0:
+                self.flank_units_left.append(cav)
+            else:
+                self.flank_units_right.append(cav)
+
+        # Knights split between main force and flanks
+        flank_knights = len(knights) // 3  # 1/3 to each flank
+        for i, knight in enumerate(knights):
+            if i < flank_knights:
+                self.flank_units_left.append(knight)
+            elif i < flank_knights * 2:
+                self.flank_units_right.append(knight)
+            else:
+                self.main_force_units.append(knight)
+
+        # Cannons stay with main force (slow, need protection)
+        self.main_force_units.extend(cannons)
+
+        # If flanks are too small, redistribute
+        min_flank_size = 2
+        if len(self.flank_units_left) < min_flank_size or len(self.flank_units_right) < min_flank_size:
+            # Not enough for proper flanking, merge into main attack
+            self.main_force_units.extend(self.flank_units_left)
+            self.main_force_units.extend(self.flank_units_right)
+            self.flank_units_left.clear()
+            self.flank_units_right.clear()
+            self.flanking_active = False
+        else:
+            self.flanking_active = True
+
     def update(self, dt: float):
         """Update AI logic."""
         self.think_timer += dt
@@ -202,9 +337,80 @@ class AIBot:
 
         if len(nearby_enemies) >= 2:
             self.state = 'defending'
-            self.attack_target = (castle.x, castle.y)
+            # Cancel attack when defending
+            self._cancel_attack()
+            self.attack_target = (castle.x, castle.y)  # Set defense target
         elif len(self.military_units) >= int(4 * self.aggression + 2) and self.state != 'defending':
             self.state = 'attacking'
+
+    def _cancel_flanking(self):
+        """Cancel flanking strategy and reset related state."""
+        self.flanking_active = False
+        self.flank_units_left.clear()
+        self.flank_units_right.clear()
+        self.main_force_units.clear()
+        self.flank_target_left = None
+        self.flank_target_right = None
+
+    def _cancel_attack(self):
+        """Cancel attack and reset all attack-related state."""
+        self._cancel_flanking()
+        self.rally_point = None
+        self.army_gathered = False
+        self.gather_timer = 0.0
+        self.attack_target = None
+
+    def _calculate_rally_point(self) -> Optional[Tuple[float, float]]:
+        """Calculate a rally point between AI castle and the attack target."""
+        castle = self.my_castle
+        if not castle or not self.attack_target:
+            return None
+
+        # Rally point is partway between castle and target (closer to castle)
+        # This gives units time to gather before the assault
+        rally_distance = 300  # Distance from castle towards target
+
+        dx = self.attack_target[0] - castle.x
+        dy = self.attack_target[1] - castle.y
+        dist = math.sqrt(dx * dx + dy * dy)
+
+        if dist < 1:
+            return (castle.x, castle.y)
+
+        # Normalize and calculate rally point
+        nx, ny = dx / dist, dy / dist
+        rally_x = castle.x + nx * rally_distance
+        rally_y = castle.y + ny * rally_distance
+
+        # Clamp to map bounds
+        rally_x = max(100, min(MAP_WIDTH - 100, rally_x))
+        rally_y = max(100, min(MAP_HEIGHT - 100, rally_y))
+
+        return (rally_x, rally_y)
+
+    def _is_army_gathered(self) -> bool:
+        """Check if enough military units are gathered at the rally point."""
+        if not self.rally_point:
+            return True  # No rally point, consider gathered
+
+        military = self.military_units
+        if not military:
+            return False
+
+        # Count units near rally point
+        gather_radius = 150  # Units within this distance are considered gathered
+        gathered_count = 0
+
+        for unit in military:
+            dist = unit.distance_to(self.rally_point[0], self.rally_point[1])
+            if dist < gather_radius:
+                gathered_count += 1
+
+        # Need at least 70% of army gathered, or have been waiting too long
+        total = len(military)
+        gather_threshold = 0.7
+
+        return gathered_count >= total * gather_threshold
 
     def _assign_workers(self):
         """Assign idle peasants to buildings that need workers."""
@@ -312,6 +518,7 @@ class AIBot:
                 if castles:
                     target = castles[0]
                     self.attack_target = (target.x, target.y)
+                    self._setup_attack()
                     return
 
             # Prefer non-castle buildings first
@@ -324,6 +531,25 @@ class AIBot:
         elif self.enemy_units:
             target = random.choice(self.enemy_units)
             self.attack_target = (target.x, target.y)
+
+        self._setup_attack()
+
+    def _setup_attack(self):
+        """Set up attack - calculate rally point and reset gather state."""
+        # Reset army gather state
+        self.army_gathered = False
+        self.gather_timer = 0.0
+
+        # Calculate rally point for Normal+ (Easy just attacks directly)
+        if self.difficulty == Difficulty.EASY:
+            self.rally_point = None
+            self.army_gathered = True  # Easy mode doesn't wait to gather
+        else:
+            self.rally_point = self._calculate_rally_point()
+
+        # Check if we should use flanking for Hard+ difficulties
+        if self._should_use_flanking():
+            self._setup_flanking_attack()
 
     def _try_build_building(self, building_type: BuildingType):
         """Attempt to build a building."""
@@ -388,52 +614,151 @@ class AIBot:
 
     def _execute_attack_orders(self):
         """Execute attack orders for military units."""
+        # Phase 1: Gather army at rally point (Normal+ only)
+        if not self.army_gathered and self.rally_point:
+            self._execute_gather_phase()
+            return
+
+        # Phase 2: Use flanking strategy if active (Hard+ only)
+        if self.flanking_active:
+            self._execute_flanking_attack()
+            return
+
+        # Phase 3: Standard coordinated attack
         for unit in self.military_units:
-            # Dynamic retargeting: check if there's a closer threat even if we have a target
+            self._execute_unit_attack(unit, self.attack_target)
+
+    def _execute_gather_phase(self):
+        """Execute the gathering phase - move units to rally point before attacking."""
+        military = self.military_units
+
+        # Move all units to rally point
+        for unit in military:
+            # Skip if already engaged with nearby enemy (allow defensive fighting)
+            if unit.target_unit and unit.target_unit.is_alive():
+                dist_to_enemy = unit.distance_to_unit(unit.target_unit)
+                if dist_to_enemy < unit.attack_range + 100:
+                    continue  # Let them finish the fight
+
+            # Check for nearby enemies that are attacking us
             nearest_enemy = self._find_nearest_enemy(unit)
-
-            # If an enemy is very close (within attack range + buffer), prioritize them
-            # This allows units to respond to being attacked instead of ignoring threats
             if nearest_enemy:
-                dist_to_nearest = unit.distance_to_unit(nearest_enemy)
-
-                # Check if we should switch targets
-                should_retarget = False
-
-                if dist_to_nearest < unit.attack_range + 50:
-                    # Enemy is in attack range - definitely engage
-                    should_retarget = True
-                elif unit.target_building and dist_to_nearest < 150:
-                    # Attacking building but enemy unit is close - switch to unit
-                    should_retarget = True
-                elif unit.target_unit and unit.target_unit.is_alive():
-                    # Already targeting a unit - switch if new one is much closer
-                    current_dist = unit.distance_to_unit(unit.target_unit)
-                    if dist_to_nearest < current_dist * 0.6:  # New target is 40% closer
-                        should_retarget = True
-                elif not unit.target_unit or not unit.target_unit.is_alive():
-                    # No valid unit target - engage if enemy is reasonably close
-                    if dist_to_nearest < 200:
-                        should_retarget = True
-
-                if should_retarget:
+                dist = unit.distance_to_unit(nearest_enemy)
+                if dist < unit.attack_range + 50:
+                    # Enemy in range, fight back
                     unit.set_attack_target(nearest_enemy)
                     continue
 
-            # Skip if already has a valid target
-            if unit.target_unit and unit.target_unit.is_alive():
-                continue
-            if unit.target_building and not unit.target_building.is_destroyed():
-                continue
+            # Move to rally point if not there yet
+            dist_to_rally = unit.distance_to(self.rally_point[0], self.rally_point[1])
+            if dist_to_rally > 80:
+                unit.set_move_target(self.rally_point[0], self.rally_point[1])
+            else:
+                # At rally point, clear targets and wait
+                if unit.target_x is not None and not unit.target_unit:
+                    unit.clear_targets()
 
-            # No immediate threats - proceed to attack target location
-            if self.attack_target:
-                # Check if we should attack a building at target location
-                target_building = self._find_building_at(self.attack_target)
-                if target_building:
-                    unit.set_building_target(target_building)
-                else:
-                    unit.set_move_target(*self.attack_target)
+        # Check if army is gathered
+        if self._is_army_gathered():
+            self.army_gathered = True
+            # Set up flanking now that army is gathered
+            if self._should_use_flanking():
+                self._setup_flanking_attack()
+
+    def _execute_unit_attack(self, unit: Unit, target_pos: Optional[Tuple[float, float]]):
+        """Execute attack logic for a single unit."""
+        # Dynamic retargeting: check if there's a closer threat even if we have a target
+        nearest_enemy = self._find_nearest_enemy(unit)
+
+        # If an enemy is very close (within attack range + buffer), prioritize them
+        # This allows units to respond to being attacked instead of ignoring threats
+        if nearest_enemy:
+            dist_to_nearest = unit.distance_to_unit(nearest_enemy)
+
+            # Check if we should switch targets
+            should_retarget = False
+
+            if dist_to_nearest < unit.attack_range + 50:
+                # Enemy is in attack range - definitely engage
+                should_retarget = True
+            elif unit.target_building and dist_to_nearest < 150:
+                # Attacking building but enemy unit is close - switch to unit
+                should_retarget = True
+            elif unit.target_unit and unit.target_unit.is_alive():
+                # Already targeting a unit - switch if new one is much closer
+                current_dist = unit.distance_to_unit(unit.target_unit)
+                if dist_to_nearest < current_dist * 0.6:  # New target is 40% closer
+                    should_retarget = True
+            elif not unit.target_unit or not unit.target_unit.is_alive():
+                # No valid unit target - engage if enemy is reasonably close
+                if dist_to_nearest < 200:
+                    should_retarget = True
+
+            if should_retarget:
+                unit.set_attack_target(nearest_enemy)
+                return
+
+        # Skip if already has a valid target
+        if unit.target_unit and unit.target_unit.is_alive():
+            return
+        if unit.target_building and not unit.target_building.is_destroyed():
+            return
+
+        # No immediate threats - proceed to attack target location
+        if target_pos:
+            # Check if we should attack a building at target location
+            target_building = self._find_building_at(target_pos)
+            if target_building:
+                unit.set_building_target(target_building)
+            else:
+                unit.set_move_target(*target_pos)
+
+    def _execute_flanking_attack(self):
+        """Execute a coordinated flanking attack with multiple groups."""
+        # Clean up dead units from groups
+        self.flank_units_left = [u for u in self.flank_units_left if u.is_alive() and u in self.game.units]
+        self.flank_units_right = [u for u in self.flank_units_right if u.is_alive() and u in self.game.units]
+        self.main_force_units = [u for u in self.main_force_units if u.is_alive() and u in self.game.units]
+
+        # Check if flanking is still viable
+        total_flankers = len(self.flank_units_left) + len(self.flank_units_right)
+        if total_flankers < 2:
+            # Not enough flankers remaining, merge into standard attack
+            self.flanking_active = False
+            return
+
+        # Execute left flank
+        for unit in self.flank_units_left:
+            # Move to flank position first, then attack
+            dist_to_flank = unit.distance_to(self.flank_target_left[0], self.flank_target_left[1])
+            if dist_to_flank > 100:
+                # Still approaching flank position
+                self._execute_unit_attack(unit, self.flank_target_left)
+            else:
+                # At flank position, attack main target
+                self._execute_unit_attack(unit, self.attack_target)
+
+        # Execute right flank
+        for unit in self.flank_units_right:
+            dist_to_flank = unit.distance_to(self.flank_target_right[0], self.flank_target_right[1])
+            if dist_to_flank > 100:
+                # Still approaching flank position
+                self._execute_unit_attack(unit, self.flank_target_right)
+            else:
+                # At flank position, attack main target
+                self._execute_unit_attack(unit, self.attack_target)
+
+        # Main force attacks directly
+        for unit in self.main_force_units:
+            self._execute_unit_attack(unit, self.attack_target)
+
+        # Also handle any units not assigned to a group (newly trained)
+        all_assigned = set(self.flank_units_left + self.flank_units_right + self.main_force_units)
+        for unit in self.military_units:
+            if unit not in all_assigned:
+                # Assign new units to main force
+                self.main_force_units.append(unit)
+                self._execute_unit_attack(unit, self.attack_target)
 
     def _find_building_at(self, pos: Tuple[float, float]) -> Optional[Building]:
         """Find an enemy building near the given position."""
