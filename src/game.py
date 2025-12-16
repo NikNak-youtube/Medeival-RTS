@@ -11,7 +11,7 @@ from typing import List, Optional, Tuple
 from .constants import (
     SCREEN_WIDTH, SCREEN_HEIGHT, MAP_WIDTH, MAP_HEIGHT, TILE_SIZE, FPS,
     WHITE, BLACK, RED, GREEN, GOLD, GRAY, DARK_GRAY, LIGHT_GRAY, BROWN, YELLOW,
-    GameState, UnitType, BuildingType, Team,
+    GameState, UnitType, BuildingType, Team, Difficulty, DIFFICULTY_SETTINGS,
     UNIT_COSTS, BUILDING_COSTS, RESOURCE_TICK_INTERVAL,
     FOOD_CONSUMPTION_INTERVAL, FOOD_PER_UNIT, STARVATION_DAMAGE
 )
@@ -88,6 +88,10 @@ class Game:
         self.large_font = pygame.font.Font(None, 48)
         self.title_font = pygame.font.Font(None, 72)
 
+        # Settings
+        self.fullscreen = False
+        self.selected_difficulty = Difficulty.NORMAL
+
         # Initialize UI
         self._init_ui()
 
@@ -98,8 +102,22 @@ class Game:
             Button(SCREEN_WIDTH // 2 - 150, 250, 300, 50, "Play vs AI"),
             Button(SCREEN_WIDTH // 2 - 150, 320, 300, 50, "Host Multiplayer"),
             Button(SCREEN_WIDTH // 2 - 150, 390, 300, 50, "Join Multiplayer"),
-            Button(SCREEN_WIDTH // 2 - 150, 460, 300, 50, "Quit")
+            Button(SCREEN_WIDTH // 2 - 150, 460, 300, 50, "Settings"),
+            Button(SCREEN_WIDTH // 2 - 150, 530, 300, 50, "Quit")
         ]
+
+        # Difficulty selection buttons (spaced for descriptions)
+        self.difficulty_buttons = [
+            Button(SCREEN_WIDTH // 2 - 150, 200, 300, 45, "Easy"),
+            Button(SCREEN_WIDTH // 2 - 150, 290, 300, 45, "Normal"),
+            Button(SCREEN_WIDTH // 2 - 150, 380, 300, 45, "Hard"),
+            Button(SCREEN_WIDTH // 2 - 150, 470, 300, 45, "Brutal"),
+        ]
+        self.difficulty_back_button = Button(SCREEN_WIDTH // 2 - 150, 560, 300, 45, "Back")
+
+        # Settings buttons
+        self.fullscreen_button = Button(SCREEN_WIDTH // 2 - 150, 300, 300, 50, "Fullscreen: Off")
+        self.settings_back_button = Button(SCREEN_WIDTH // 2 - 150, 400, 300, 50, "Back")
 
         # Multiplayer UI
         self.ip_input = TextInput(SCREEN_WIDTH // 2 - 150, 350, 300, 40, "Enter IP address")
@@ -147,7 +165,7 @@ class Game:
 
         # Setup AI or multiplayer
         if vs_ai:
-            self.ai_bot = AIBot(self)
+            self.ai_bot = AIBot(self, self.selected_difficulty)
             self.is_multiplayer = False
             self._create_enemy_starting_units()
         else:
@@ -247,6 +265,10 @@ class Game:
             self._handle_lobby_input(mouse_pos, mouse_clicked)
         elif self.state == GameState.WAITING_FOR_ACCEPT:
             self._handle_waiting_input(mouse_pos, mouse_clicked)
+        elif self.state == GameState.DIFFICULTY_SELECT:
+            self._handle_difficulty_input(mouse_pos, mouse_clicked)
+        elif self.state == GameState.SETTINGS:
+            self._handle_settings_input(mouse_pos, mouse_clicked)
 
     def _handle_menu_input(self, mouse_pos: Tuple[int, int], clicked: bool):
         """Handle main menu input."""
@@ -255,14 +277,55 @@ class Game:
 
         if clicked:
             if self.menu_buttons[0].is_clicked(mouse_pos, True):
-                self.init_game(vs_ai=True)
+                # Go to difficulty selection before starting game
+                self.state = GameState.DIFFICULTY_SELECT
             elif self.menu_buttons[1].is_clicked(mouse_pos, True):
                 if self.network.host_game():
                     self.state = GameState.WAITING_FOR_ACCEPT
             elif self.menu_buttons[2].is_clicked(mouse_pos, True):
                 self.state = GameState.MULTIPLAYER_LOBBY
             elif self.menu_buttons[3].is_clicked(mouse_pos, True):
+                self.state = GameState.SETTINGS
+            elif self.menu_buttons[4].is_clicked(mouse_pos, True):
                 self.running = False
+
+    def _handle_difficulty_input(self, mouse_pos: Tuple[int, int], clicked: bool):
+        """Handle difficulty selection input."""
+        for button in self.difficulty_buttons:
+            button.update(mouse_pos)
+        self.difficulty_back_button.update(mouse_pos)
+
+        if clicked:
+            difficulties = [Difficulty.EASY, Difficulty.NORMAL, Difficulty.HARD, Difficulty.BRUTAL]
+            for i, button in enumerate(self.difficulty_buttons):
+                if button.is_clicked(mouse_pos, True):
+                    self.selected_difficulty = difficulties[i]
+                    self.init_game(vs_ai=True)
+                    return
+
+            if self.difficulty_back_button.is_clicked(mouse_pos, True):
+                self.state = GameState.MAIN_MENU
+
+    def _handle_settings_input(self, mouse_pos: Tuple[int, int], clicked: bool):
+        """Handle settings menu input."""
+        self.fullscreen_button.update(mouse_pos)
+        self.settings_back_button.update(mouse_pos)
+
+        if clicked:
+            if self.fullscreen_button.is_clicked(mouse_pos, True):
+                self._toggle_fullscreen()
+            elif self.settings_back_button.is_clicked(mouse_pos, True):
+                self.state = GameState.MAIN_MENU
+
+    def _toggle_fullscreen(self):
+        """Toggle fullscreen mode."""
+        self.fullscreen = not self.fullscreen
+        if self.fullscreen:
+            self.screen = pygame.display.set_mode((SCREEN_WIDTH, SCREEN_HEIGHT), pygame.FULLSCREEN)
+            self.fullscreen_button.text = "Fullscreen: On"
+        else:
+            self.screen = pygame.display.set_mode((SCREEN_WIDTH, SCREEN_HEIGHT))
+            self.fullscreen_button.text = "Fullscreen: Off"
 
     def _handle_lobby_input(self, mouse_pos: Tuple[int, int], clicked: bool):
         """Handle multiplayer lobby input."""
@@ -329,6 +392,10 @@ class Game:
             else:
                 self.state = GameState.MAIN_MENU
                 self.network.close()
+
+        # Fullscreen toggle
+        elif event.key == pygame.K_F11:
+            self._toggle_fullscreen()
 
         # Building hotkeys
         elif event.key == pygame.K_h:
@@ -614,13 +681,32 @@ class Game:
                 else:
                     unit.move_towards(unit.target_x, unit.target_y, self.dt)
 
-            # Auto-attack nearby enemies
+            # Auto-attack nearby enemies (military units are more aggressive)
             if unit.target_unit is None and unit.target_building is None:
+                # Military units (knights, cavalry, cannons) have larger aggro range
+                is_military = unit.unit_type in [UnitType.KNIGHT, UnitType.CAVALRY, UnitType.CANNON]
+                aggro_range = unit.attack_range * 3 if is_military else unit.attack_range * 1.5
+
+                # Find nearest enemy in range
+                nearest_enemy = None
+                nearest_dist = float('inf')
                 for other in self.units:
                     if other.team != unit.team:
-                        if unit.distance_to_unit(other) <= unit.attack_range * 1.5:
-                            unit.set_attack_target(other)
-                            break
+                        dist = unit.distance_to_unit(other)
+                        if dist <= aggro_range and dist < nearest_dist:
+                            nearest_dist = dist
+                            nearest_enemy = other
+
+                if nearest_enemy:
+                    unit.set_attack_target(nearest_enemy)
+                # Military units also auto-attack nearby buildings if no units around
+                elif is_military and not unit.assigned_building:
+                    for building in self.buildings:
+                        if building.team != unit.team:
+                            dist = unit.distance_to_building(building)
+                            if dist <= unit.attack_range * 2:
+                                unit.set_building_target(building)
+                                break
 
             # Remove dead units
             if not unit.is_alive():
@@ -757,6 +843,10 @@ class Game:
             self._draw_lobby()
         elif self.state in [GameState.WAITING_FOR_ACCEPT, GameState.CONNECTING]:
             self._draw_waiting()
+        elif self.state == GameState.DIFFICULTY_SELECT:
+            self._draw_difficulty_select()
+        elif self.state == GameState.SETTINGS:
+            self._draw_settings()
 
         pygame.display.flip()
 
@@ -847,6 +937,52 @@ class Game:
         self.screen.blit(subtitle, subtitle_rect)
 
         self.back_button.draw(self.screen)
+
+    def _draw_difficulty_select(self):
+        """Draw difficulty selection screen."""
+        self.screen.fill(DARK_GRAY)
+
+        # Title
+        title = self.large_font.render("Select Difficulty", True, WHITE)
+        title_rect = title.get_rect(center=(SCREEN_WIDTH // 2, 150))
+        self.screen.blit(title, title_rect)
+
+        # Difficulty buttons with descriptions
+        descriptions = [
+            "Easy - Slow AI, fewer enemies, less aggressive",
+            "Normal - Balanced gameplay experience",
+            "Hard - Fast AI, resource bonuses, very aggressive",
+            "Brutal - Maximum challenge, overwhelming force"
+        ]
+
+        for i, button in enumerate(self.difficulty_buttons):
+            button.draw(self.screen)
+            # Draw description below each button
+            desc = self.font.render(descriptions[i], True, LIGHT_GRAY)
+            desc_rect = desc.get_rect(center=(SCREEN_WIDTH // 2, button.rect.bottom + 15))
+            self.screen.blit(desc, desc_rect)
+
+        self.difficulty_back_button.draw(self.screen)
+
+    def _draw_settings(self):
+        """Draw settings menu."""
+        self.screen.fill(DARK_GRAY)
+
+        # Title
+        title = self.large_font.render("Settings", True, WHITE)
+        title_rect = title.get_rect(center=(SCREEN_WIDTH // 2, 200))
+        self.screen.blit(title, title_rect)
+
+        # Fullscreen button
+        self.fullscreen_button.draw(self.screen)
+
+        # Back button
+        self.settings_back_button.draw(self.screen)
+
+        # Instructions
+        hint = self.font.render("Press F11 in-game to toggle fullscreen", True, LIGHT_GRAY)
+        hint_rect = hint.get_rect(center=(SCREEN_WIDTH // 2, 500))
+        self.screen.blit(hint, hint_rect)
 
     def _draw_game(self):
         """Draw the game world."""

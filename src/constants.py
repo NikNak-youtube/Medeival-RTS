@@ -134,6 +134,48 @@ FOOD_PER_UNIT = 2  # food consumed per unit per tick
 STARVATION_DAMAGE = 5  # damage taken when no food available
 
 # =============================================================================
+# AI DIFFICULTY SETTINGS
+# =============================================================================
+
+class Difficulty(Enum):
+    EASY = auto()
+    NORMAL = auto()
+    HARD = auto()
+    BRUTAL = auto()
+
+# Difficulty multipliers: affects AI think speed, resource bonus, and aggression
+DIFFICULTY_SETTINGS = {
+    Difficulty.EASY: {
+        'think_speed': 0.5,      # AI thinks slower
+        'resource_bonus': 0.8,   # AI gets less resources
+        'aggression': 0.3,       # Less aggressive
+        'military_cap': 5,       # Max military units
+        'name': 'Easy'
+    },
+    Difficulty.NORMAL: {
+        'think_speed': 1.0,
+        'resource_bonus': 1.0,
+        'aggression': 0.5,
+        'military_cap': 8,
+        'name': 'Normal'
+    },
+    Difficulty.HARD: {
+        'think_speed': 1.5,      # AI thinks faster
+        'resource_bonus': 1.2,   # AI gets bonus resources
+        'aggression': 0.7,
+        'military_cap': 12,
+        'name': 'Hard'
+    },
+    Difficulty.BRUTAL: {
+        'think_speed': 2.0,
+        'resource_bonus': 1.5,
+        'aggression': 0.9,
+        'military_cap': 20,
+        'name': 'Brutal'
+    }
+}
+
+# =============================================================================
 # ENUMS
 # =============================================================================
 
@@ -145,6 +187,8 @@ class GameState(Enum):
     MULTIPLAYER_LOBBY = auto()
     CONNECTING = auto()
     WAITING_FOR_ACCEPT = auto()
+    SETTINGS = auto()
+    DIFFICULTY_SELECT = auto()
 
 
 class UnitType(Enum):

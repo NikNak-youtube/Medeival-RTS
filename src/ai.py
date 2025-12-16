@@ -9,7 +9,7 @@ from typing import List, Optional, Tuple, TYPE_CHECKING
 from .constants import (
     UnitType, BuildingType, Team,
     UNIT_COSTS, BUILDING_COSTS, MAP_WIDTH, MAP_HEIGHT,
-    WORKER_RANGE
+    Difficulty, DIFFICULTY_SETTINGS
 )
 from .entities import Unit, Building, Resources
 
@@ -20,16 +20,17 @@ if TYPE_CHECKING:
 class AIBot:
     """AI opponent for single player mode."""
 
-    def __init__(self, game: 'Game', difficulty: float = 1.0):
+    def __init__(self, game: 'Game', difficulty: Difficulty = Difficulty.NORMAL):
         """
         Initialize AI bot.
 
         Args:
             game: Reference to main game instance
-            difficulty: AI difficulty multiplier (0.5=easy, 1.0=normal, 1.5=hard)
+            difficulty: AI difficulty level
         """
         self.game = game
         self.difficulty = difficulty
+        self.settings = DIFFICULTY_SETTINGS[difficulty]
 
         # Timing
         self.think_timer = 0
@@ -37,8 +38,11 @@ class AIBot:
 
         # AI state
         self.state = 'building'  # building, attacking, defending
-        self.aggression = 0.5
+        self.aggression = self.settings['aggression']
         self.attack_target: Optional[Tuple[float, float]] = None
+
+        # Resource bonus timer
+        self.resource_bonus_timer = 0
 
         # Queues
         self.build_queue: List[BuildingType] = []
@@ -97,13 +101,29 @@ class AIBot:
         self.think_timer += dt
 
         # Think at intervals adjusted by difficulty
-        effective_interval = self.think_interval / self.difficulty
+        think_speed = self.settings['think_speed']
+        effective_interval = self.think_interval / think_speed
         if self.think_timer >= effective_interval:
             self.think_timer = 0
             self.think()
 
+        # Apply resource bonus for harder difficulties
+        self._apply_resource_bonus(dt)
+
         # Always execute current orders
         self.execute_orders(dt)
+
+    def _apply_resource_bonus(self, dt: float):
+        """Apply resource bonus based on difficulty."""
+        self.resource_bonus_timer += dt
+        if self.resource_bonus_timer >= 10.0:  # Every 10 seconds
+            self.resource_bonus_timer = 0
+            bonus = self.settings['resource_bonus']
+            if bonus > 1.0:
+                # Give bonus resources on harder difficulties
+                extra = int((bonus - 1.0) * 50)
+                self.resources.gold += extra
+                self.resources.food += extra // 2
 
     def think(self):
         """Main AI decision making."""
@@ -134,7 +154,7 @@ class AIBot:
         if len(nearby_enemies) >= 2:
             self.state = 'defending'
             self.attack_target = (castle.x, castle.y)
-        elif len(self.military_units) >= 5 and self.state != 'defending':
+        elif len(self.military_units) >= int(4 * self.aggression + 2) and self.state != 'defending':
             self.state = 'attacking'
 
     def _assign_workers(self):
@@ -170,21 +190,25 @@ class AIBot:
         farms = len([b for b in self.my_buildings if b.building_type == BuildingType.FARM])
         houses = len([b for b in self.my_buildings if b.building_type == BuildingType.HOUSE])
         peasants = len(self.my_peasants)
-        idle_peasants = len(self.idle_peasants)
 
         # Calculate total worker slots needed
         total_slots = sum(b.get_max_workers() for b in self.my_buildings)
 
+        # Max buildings based on difficulty
+        max_farms = 3 + int(self.aggression * 2)
+        max_houses = 2 + int(self.aggression * 2)
+
         # Build farms first if low on food (priority)
-        if self.resources.food < 150 and farms < 4:
+        if self.resources.food < 150 and farms < max_farms:
             self._try_build_building(BuildingType.FARM)
 
         # Build houses for gold generation
-        if houses < 3 and self.resources.gold >= 100:
+        if houses < max_houses and self.resources.gold >= 100:
             self._try_build_building(BuildingType.HOUSE)
 
         # Train peasants if we have building slots to fill
-        if peasants < total_slots + 1 and peasants < 8:
+        max_peasants = 6 + int(self.aggression * 4)
+        if peasants < total_slots + 1 and peasants < max_peasants:
             self._try_train_unit(UnitType.PEASANT)
         # Always have at least some peasants
         elif peasants < 3:
@@ -193,21 +217,25 @@ class AIBot:
     def _military_decisions(self):
         """Make military decisions."""
         military_count = len(self.military_units)
+        military_cap = self.settings['military_cap']
 
         # Build military based on resources and current army size
-        if military_count < 8:
-            if self.resources.gold >= 200 and random.random() < 0.4:
+        if military_count < military_cap:
+            # More aggressive AIs build more cavalry
+            if self.resources.gold >= 200 and random.random() < self.aggression:
                 self._try_train_unit(UnitType.CAVALRY)
             elif self.resources.gold >= 150:
                 self._try_train_unit(UnitType.KNIGHT)
 
-        # Add cannons occasionally
+        # Add cannons occasionally (more on harder difficulties)
         cannons = len([u for u in self.my_units if u.unit_type == UnitType.CANNON])
-        if military_count >= 4 and cannons < 2 and random.random() < 0.2:
+        max_cannons = 1 + int(self.aggression * 3)
+        if military_count >= 4 and cannons < max_cannons and random.random() < self.aggression * 0.3:
             self._try_train_unit(UnitType.CANNON)
 
-        # Attack decision
-        if military_count >= 5 and self.state != 'defending':
+        # Attack decision - more aggressive on harder difficulties
+        attack_threshold = max(3, int(5 - self.aggression * 3))
+        if military_count >= attack_threshold and self.state != 'defending':
             self.state = 'attacking'
             self._choose_attack_target()
 
@@ -215,6 +243,14 @@ class AIBot:
         """Choose a target to attack."""
         # Prioritize buildings
         if self.enemy_buildings:
+            # More aggressive AIs go for castle earlier
+            if self.aggression > 0.7 and random.random() < 0.3:
+                castles = [b for b in self.enemy_buildings if b.building_type == BuildingType.CASTLE]
+                if castles:
+                    target = castles[0]
+                    self.attack_target = (target.x, target.y)
+                    return
+
             # Prefer non-castle buildings first
             non_castles = [
                 b for b in self.enemy_buildings
