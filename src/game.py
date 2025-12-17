@@ -228,10 +228,12 @@ class Game:
         if vs_ai:
             self.ai_bot = AIBot(self, self.selected_difficulty)
             self.is_multiplayer = False
-            self._create_enemy_starting_units()
         else:
             self.ai_bot = None
             self.is_multiplayer = True
+
+        # Create enemy starting units (both AI and multiplayer need these)
+        self._create_enemy_starting_units()
 
         # Position camera at player start
         self.camera.x = 0
@@ -634,6 +636,9 @@ class Game:
         elif event.key == pygame.K_DELETE:
             for unit in self.selected_units[:]:
                 if unit in self.units:
+                    # Sync deletion in multiplayer
+                    if self.is_multiplayer and self.network.connected:
+                        self.network.send_unit_death(unit.uid)
                     self.units.remove(unit)
             self.selected_units.clear()
 
@@ -798,6 +803,8 @@ class Game:
                     break
 
         # Issue commands
+        assigned_workers = []  # Track workers assigned to buildings for network sync
+
         for unit in self.selected_units:
             # Unassign peasant from current building when given new orders
             if unit.unit_type == UnitType.PEASANT and unit.assigned_building:
@@ -827,6 +834,7 @@ class Game:
                 if assigned_count < max_workers:
                     # Assign peasant to work at friendly building
                     unit.assign_to_building(friendly_building)
+                    assigned_workers.append((unit.uid, friendly_building.uid))
             else:
                 unit.set_move_target(world_pos[0], world_pos[1])
 
@@ -835,12 +843,16 @@ class Game:
 
         # Network sync
         if self.is_multiplayer and self.network.connected:
+            # Send unit movement/attack commands
             self.network.send_unit_command(
                 [u.uid for u in self.selected_units],
                 world_pos,
                 target_unit.uid if target_unit else None,
                 target_building.uid if target_building else None
             )
+            # Send worker assignment commands
+            for unit_uid, building_uid in assigned_workers:
+                self.network.send_assign_worker(unit_uid, building_uid)
 
     # =========================================================================
     # UNIT/BUILDING ACTIONS
@@ -874,6 +886,14 @@ class Game:
         unit = Unit(x, y, unit_type, Team.PLAYER, _mod_manager=self.mod_manager)
         unit.uid = self.next_uid()
         self.units.append(unit)
+
+        # Network sync
+        if self.is_multiplayer and self.network.connected:
+            self.network.send_action({
+                'command': 'train',
+                'unit_type': unit_type.name.lower(),
+                'uid': unit.uid
+            })
 
     def _get_building_placement_pos(self, world_pos: Tuple[float, float]) -> Tuple[float, float]:
         """Get the placement position, with optional grid snapping."""
@@ -945,6 +965,16 @@ class Game:
         building.build_progress = 0.0
         self.buildings.append(building)
 
+        # Network sync
+        if self.is_multiplayer and self.network.connected:
+            self.network.send_action({
+                'command': 'build',
+                'building_type': self.placing_building.name.lower(),
+                'x': place_pos[0],
+                'y': place_pos[1],
+                'uid': building.uid
+            })
+
         self.placing_building = None
 
     def _deconstruct_building(self, building: Building):
@@ -972,6 +1002,13 @@ class Game:
                 unit.unassign_from_building()
             if unit.constructing_building == building:
                 unit.constructing_building = None
+
+        # Network sync
+        if self.is_multiplayer and self.network.connected:
+            self.network.send_action({
+                'command': 'deconstruct',
+                'building': building.uid
+            })
 
         # Remove building
         self.buildings.remove(building)
@@ -1144,8 +1181,15 @@ class Game:
             )
             self.projectiles.append(projectile)
         else:
-            defender.take_damage(damage)
+            killed = defender.take_damage(damage)
             self.blood_effects.append(BloodEffect(defender.x, defender.y, 0.5, 0.5))
+
+            # Sync damage/death in multiplayer (only when our units attack enemy units)
+            if self.is_multiplayer and self.network.connected and attacker.team == Team.PLAYER:
+                if killed:
+                    self.network.send_unit_death(defender.uid)
+                else:
+                    self.network.send_unit_damage(defender.uid, defender.health)
 
     def _do_attack_building(self, attacker: Unit, building: Building):
         """Attack a building."""
@@ -1172,7 +1216,16 @@ class Game:
             self.projectiles.append(projectile)
             return  # Don't apply instant damage
 
-        if building.take_damage(damage):
+        destroyed = building.take_damage(damage)
+
+        # Sync damage/destruction in multiplayer (only when our units attack enemy buildings)
+        if self.is_multiplayer and self.network.connected and attacker.team == Team.PLAYER:
+            if destroyed:
+                self.network.send_building_destroyed(building.uid)
+            else:
+                self.network.send_building_damage(building.uid, building.health)
+
+        if destroyed:
             self.buildings.remove(building)
             for u in self.units:
                 if u.target_building == building:
@@ -1291,6 +1344,12 @@ class Game:
                             if unit.constructing_building == building:
                                 unit.constructing_building = None
 
+                    # Sync construction progress in multiplayer (only for our buildings)
+                    if self.is_multiplayer and self.network.connected and building.team == Team.PLAYER:
+                        self.network.send_building_progress(
+                            building.uid, building.build_progress, building.completed
+                        )
+
     def _update_tower_attacks(self):
         """Update tower attacks against enemy units."""
         current_time = time.time()
@@ -1359,7 +1418,8 @@ class Game:
                         should_hit = random.random() < TOWER_STATS['hit_chance']
 
                     if should_hit:
-                        if projectile.target_unit.take_damage(projectile.damage):
+                        killed = projectile.target_unit.take_damage(projectile.damage)
+                        if killed:
                             # Target killed
                             self.blood_effects.append(BloodEffect(projectile.target_unit.x, projectile.target_unit.y))
                             if projectile.target_unit in self.units:
@@ -1371,9 +1431,25 @@ class Game:
                             # Hit but not killed
                             self.blood_effects.append(BloodEffect(projectile.target_unit.x, projectile.target_unit.y, 0.5, 0.5))
 
+                        # Sync damage/death in multiplayer (only for our projectiles)
+                        if self.is_multiplayer and self.network.connected and projectile.team == Team.PLAYER:
+                            if killed:
+                                self.network.send_unit_death(projectile.target_unit.uid)
+                            else:
+                                self.network.send_unit_damage(projectile.target_unit.uid, projectile.target_unit.health)
+
                 elif projectile.target_building and not projectile.target_building.is_destroyed():
                     # Cannon projectile hitting building
-                    if projectile.target_building.take_damage(projectile.damage):
+                    destroyed = projectile.target_building.take_damage(projectile.damage)
+
+                    # Sync damage/destruction in multiplayer (only for our projectiles)
+                    if self.is_multiplayer and self.network.connected and projectile.team == Team.PLAYER:
+                        if destroyed:
+                            self.network.send_building_destroyed(projectile.target_building.uid)
+                        else:
+                            self.network.send_building_damage(projectile.target_building.uid, projectile.target_building.health)
+
+                    if destroyed:
                         if projectile.target_building in self.buildings:
                             self.buildings.remove(projectile.target_building)
                             for u in self.units:
@@ -1476,10 +1552,158 @@ class Game:
         for msg in messages:
             if msg['type'] == 'action':
                 data = msg['data']
-                if data['command'] == 'move':
+                command = data.get('command')
+
+                if command == 'move':
+                    # Handle unit movement and attacks
+                    target_unit = None
+                    target_building = None
+
+                    if data.get('target_unit'):
+                        target_unit = next(
+                            (u for u in self.units if u.uid == data['target_unit']), None
+                        )
+                    if data.get('target_building'):
+                        target_building = next(
+                            (b for b in self.buildings if b.uid == data['target_building']), None
+                        )
+
                     for unit in self.units:
                         if unit.uid in data['units'] and unit.team == Team.ENEMY:
-                            unit.set_move_target(*data['target'])
+                            # Unassign from work if moving
+                            if unit.unit_type == UnitType.PEASANT:
+                                if unit.assigned_building:
+                                    unit.unassign_from_building()
+                                unit.constructing_building = None
+
+                            if target_unit:
+                                unit.set_attack_target(target_unit)
+                            elif target_building:
+                                if not target_building.completed and unit.unit_type == UnitType.PEASANT:
+                                    unit.constructing_building = target_building
+                                    unit.set_move_target(target_building.x, target_building.y)
+                                else:
+                                    unit.set_building_target(target_building)
+                            else:
+                                unit.set_move_target(*data['target'])
+
+                elif command == 'assign_worker':
+                    # Handle worker assignment
+                    unit = next(
+                        (u for u in self.units if u.uid == data['unit'] and u.team == Team.ENEMY), None
+                    )
+                    if unit:
+                        if data['building'] is None:
+                            unit.unassign_from_building()
+                        else:
+                            building = next(
+                                (b for b in self.buildings if b.uid == data['building']), None
+                            )
+                            if building:
+                                unit.assign_to_building(building)
+
+                elif command == 'train':
+                    # Handle enemy unit training
+                    unit_type_name = data['unit_type']
+                    unit_type = UnitType[unit_type_name.upper()]
+
+                    # Find enemy castle
+                    castle = next(
+                        (b for b in self.buildings
+                         if b.building_type == BuildingType.CASTLE and b.team == Team.ENEMY),
+                        None
+                    )
+                    if castle:
+                        angle = random.uniform(0, 2 * math.pi)
+                        x = castle.x + math.cos(angle) * 80
+                        y = castle.y + math.sin(angle) * 80
+
+                        unit = Unit(x, y, unit_type, Team.ENEMY, _mod_manager=self.mod_manager)
+                        unit.uid = data.get('uid', self.next_uid())
+                        self.units.append(unit)
+
+                elif command == 'build':
+                    # Handle enemy building placement
+                    building_type_name = data['building_type']
+                    building_type = BuildingType[building_type_name.upper()]
+
+                    building = Building(
+                        data['x'], data['y'],
+                        building_type, Team.ENEMY,
+                        _mod_manager=self.mod_manager
+                    )
+                    building.uid = data.get('uid', self.next_uid())
+                    building.completed = False
+                    building.build_progress = 0.0
+                    self.buildings.append(building)
+
+                elif command == 'deconstruct':
+                    # Handle enemy building deconstruction
+                    building = next(
+                        (b for b in self.buildings if b.uid == data['building'] and b.team == Team.ENEMY), None
+                    )
+                    if building:
+                        # Unassign workers
+                        for unit in self.units:
+                            if unit.assigned_building == building:
+                                unit.unassign_from_building()
+                            if unit.constructing_building == building:
+                                unit.constructing_building = None
+                        self.buildings.remove(building)
+
+                elif command == 'unit_death':
+                    # Handle unit death from peer
+                    unit = next(
+                        (u for u in self.units if u.uid == data['unit']), None
+                    )
+                    if unit:
+                        self.blood_effects.append(BloodEffect(unit.x, unit.y))
+                        if unit in self.units:
+                            self.units.remove(unit)
+                        for u in self.units:
+                            if u.target_unit == unit:
+                                u.target_unit = None
+
+                elif command == 'building_destroyed':
+                    # Handle building destruction from peer
+                    building = next(
+                        (b for b in self.buildings if b.uid == data['building']), None
+                    )
+                    if building:
+                        for unit in self.units:
+                            if unit.assigned_building == building:
+                                unit.unassign_from_building()
+                            if unit.constructing_building == building:
+                                unit.constructing_building = None
+                            if unit.target_building == building:
+                                unit.target_building = None
+                        if building in self.buildings:
+                            self.buildings.remove(building)
+
+                elif command == 'unit_damage':
+                    # Sync unit health
+                    unit = next(
+                        (u for u in self.units if u.uid == data['unit']), None
+                    )
+                    if unit:
+                        unit.health = data['health']
+
+                elif command == 'building_damage':
+                    # Sync building health
+                    building = next(
+                        (b for b in self.buildings if b.uid == data['building']), None
+                    )
+                    if building:
+                        building.health = data['health']
+
+                elif command == 'building_progress':
+                    # Sync building construction progress
+                    building = next(
+                        (b for b in self.buildings if b.uid == data['building']), None
+                    )
+                    if building:
+                        building.build_progress = data['progress']
+                        building.completed = data['completed']
 
     def _check_game_over(self):
         """Check win/lose conditions."""

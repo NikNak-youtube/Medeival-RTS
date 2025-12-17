@@ -296,6 +296,53 @@ class NetworkManager:
             'y': y
         })
 
+    def send_assign_worker(self, unit_uid: int, building_uid: Optional[int]):
+        """Send worker assignment command."""
+        self.send_action({
+            'command': 'assign_worker',
+            'unit': unit_uid,
+            'building': building_uid
+        })
+
+    def send_unit_death(self, unit_uid: int):
+        """Send unit death notification."""
+        self.send_action({
+            'command': 'unit_death',
+            'unit': unit_uid
+        })
+
+    def send_building_destroyed(self, building_uid: int):
+        """Send building destruction notification."""
+        self.send_action({
+            'command': 'building_destroyed',
+            'building': building_uid
+        })
+
+    def send_unit_damage(self, unit_uid: int, new_health: int):
+        """Send unit damage update."""
+        self.send_action({
+            'command': 'unit_damage',
+            'unit': unit_uid,
+            'health': new_health
+        })
+
+    def send_building_damage(self, building_uid: int, new_health: int):
+        """Send building damage update."""
+        self.send_action({
+            'command': 'building_damage',
+            'building': building_uid,
+            'health': new_health
+        })
+
+    def send_building_progress(self, building_uid: int, progress: float, completed: bool):
+        """Send building construction progress update."""
+        self.send_action({
+            'command': 'building_progress',
+            'building': building_uid,
+            'progress': progress,
+            'completed': completed
+        })
+
     # =========================================================================
     # UTILITY
     # =========================================================================
