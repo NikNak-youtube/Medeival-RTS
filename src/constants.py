@@ -216,6 +216,7 @@ class GameState(Enum):
     SETTINGS = auto()
     DIFFICULTY_SELECT = auto()
     HOW_TO_PLAY = auto()
+    KEYBINDS = auto()
 
 
 class UnitType(Enum):

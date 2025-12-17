@@ -110,6 +110,32 @@ class Game:
         self.heal_amount = 5  # HP healed per tick
         self.heal_food_cost = 3  # Food cost per unit healed
 
+        # Keybinds configuration
+        self.keybinds = {
+            'train_peasant': pygame.K_p,
+            'train_knight': pygame.K_k,
+            'train_cavalry': pygame.K_c,
+            'train_cannon': pygame.K_n,
+            'attack_move': pygame.K_a,
+            'stop': pygame.K_s,
+            'heal_toggle': pygame.K_h,
+            'grid_snap': pygame.K_g,
+            'deconstruct': pygame.K_x,
+        }
+        self.keybind_names = {
+            'train_peasant': 'Train Peasant',
+            'train_knight': 'Train Knight',
+            'train_cavalry': 'Train Cavalry',
+            'train_cannon': 'Train Cannon',
+            'attack_move': 'Attack Move',
+            'stop': 'Stop/Cancel',
+            'heal_toggle': 'Toggle Healing',
+            'grid_snap': 'Grid Snap',
+            'deconstruct': 'Deconstruct',
+        }
+        self.rebinding_key = None  # Currently rebinding this key action
+        self.keybind_scroll_offset = 0  # For scrolling keybind list
+
         # Initialize UI
         self._init_ui()
 
@@ -138,10 +164,15 @@ class Game:
         self.difficulty_back_button = Button(SCREEN_WIDTH // 2 - 150, 560, 300, 45, "Back")
 
         # Settings buttons
-        self.fullscreen_button = Button(SCREEN_WIDTH // 2 - 150, 300, 300, 50, "Fullscreen: Off")
-        self.vsync_button = Button(SCREEN_WIDTH // 2 - 150, 370, 300, 50, "VSync: Off")
-        self.grid_snap_button = Button(SCREEN_WIDTH // 2 - 150, 440, 300, 50, "Grid Snap: Off")
-        self.settings_back_button = Button(SCREEN_WIDTH // 2 - 150, 510, 300, 50, "Back")
+        self.fullscreen_button = Button(SCREEN_WIDTH // 2 - 150, 280, 300, 50, "Fullscreen: Off")
+        self.vsync_button = Button(SCREEN_WIDTH // 2 - 150, 345, 300, 50, "VSync: Off")
+        self.grid_snap_button = Button(SCREEN_WIDTH // 2 - 150, 410, 300, 50, "Grid Snap: Off")
+        self.keybinds_button = Button(SCREEN_WIDTH // 2 - 150, 475, 300, 50, "Keybinds")
+        self.settings_back_button = Button(SCREEN_WIDTH // 2 - 150, 540, 300, 50, "Back")
+
+        # Keybinds menu buttons
+        self.keybinds_back_button = Button(SCREEN_WIDTH // 2 - 75, SCREEN_HEIGHT - 60, 150, 40, "Back")
+        self.keybinds_reset_button = Button(SCREEN_WIDTH // 2 - 225, SCREEN_HEIGHT - 60, 140, 40, "Reset All")
 
         # Multiplayer UI
         self.ip_input = TextInput(SCREEN_WIDTH // 2 - 150, 350, 300, 40, "Enter IP address")
@@ -285,6 +316,9 @@ class Game:
                     if event.key == pygame.K_ESCAPE:
                         self.state = GameState.MAIN_MENU
                         self.network.close()
+                elif self.state == GameState.KEYBINDS:
+                    # Pass key event to keybinds handler for rebinding
+                    self._handle_keybinds_input(mouse_pos, False, event)
 
             # Text input events
             if self.state in [GameState.MULTIPLAYER_LOBBY, GameState.CONNECTING]:
@@ -305,6 +339,8 @@ class Game:
             self._handle_settings_input(mouse_pos, mouse_clicked)
         elif self.state == GameState.HOW_TO_PLAY:
             self._handle_how_to_play_input(mouse_pos, mouse_clicked)
+        elif self.state == GameState.KEYBINDS:
+            self._handle_keybinds_input(mouse_pos, mouse_clicked)
 
     def _handle_menu_input(self, mouse_pos: Tuple[int, int], clicked: bool):
         """Handle main menu input."""
@@ -349,6 +385,7 @@ class Game:
         self.fullscreen_button.update(mouse_pos)
         self.vsync_button.update(mouse_pos)
         self.grid_snap_button.update(mouse_pos)
+        self.keybinds_button.update(mouse_pos)
         self.settings_back_button.update(mouse_pos)
 
         if clicked:
@@ -358,6 +395,9 @@ class Game:
                 self._toggle_vsync()
             elif self.grid_snap_button.is_clicked(mouse_pos, True):
                 self._toggle_grid_snap()
+            elif self.keybinds_button.is_clicked(mouse_pos, True):
+                self.state = GameState.KEYBINDS
+                self.rebinding_key = None
             elif self.settings_back_button.is_clicked(mouse_pos, True):
                 self.state = GameState.MAIN_MENU
 
@@ -398,6 +438,62 @@ class Game:
             self.grid_snap_button.text = "Grid Snap: On"
         else:
             self.grid_snap_button.text = "Grid Snap: Off"
+
+    def _get_key_name(self, key_code: int) -> str:
+        """Get a human-readable name for a key code."""
+        return pygame.key.name(key_code).upper()
+
+    def _handle_keybinds_input(self, mouse_pos: Tuple[int, int], clicked: bool, event: Optional[pygame.event.Event] = None):
+        """Handle keybinds menu input."""
+        self.keybinds_back_button.update(mouse_pos)
+        self.keybinds_reset_button.update(mouse_pos)
+
+        # If we're waiting for a key press to rebind
+        if self.rebinding_key and event and event.type == pygame.KEYDOWN:
+            # Don't allow Escape to be bound (used for cancel)
+            if event.key == pygame.K_ESCAPE:
+                self.rebinding_key = None
+            else:
+                # Check for conflicts
+                for action, key in self.keybinds.items():
+                    if key == event.key and action != self.rebinding_key:
+                        # Swap the keys
+                        self.keybinds[action] = self.keybinds[self.rebinding_key]
+                        break
+                self.keybinds[self.rebinding_key] = event.key
+                self.rebinding_key = None
+            return
+
+        if clicked:
+            if self.keybinds_back_button.is_clicked(mouse_pos, True):
+                self.state = GameState.SETTINGS
+                self.rebinding_key = None
+            elif self.keybinds_reset_button.is_clicked(mouse_pos, True):
+                # Reset to defaults
+                self.keybinds = {
+                    'train_peasant': pygame.K_p,
+                    'train_knight': pygame.K_k,
+                    'train_cavalry': pygame.K_c,
+                    'train_cannon': pygame.K_n,
+                    'attack_move': pygame.K_a,
+                    'stop': pygame.K_s,
+                    'heal_toggle': pygame.K_h,
+                    'grid_snap': pygame.K_g,
+                    'deconstruct': pygame.K_x,
+                }
+                self.rebinding_key = None
+            else:
+                # Check if clicking on a keybind row
+                start_y = 180
+                row_height = 40
+                actions = list(self.keybinds.keys())
+                for i, action in enumerate(actions):
+                    row_y = start_y + i * row_height
+                    # Key button area (right side)
+                    key_rect = pygame.Rect(SCREEN_WIDTH // 2 + 50, row_y, 150, 35)
+                    if key_rect.collidepoint(mouse_pos):
+                        self.rebinding_key = action
+                        break
 
     def _handle_how_to_play_input(self, mouse_pos: Tuple[int, int], clicked: bool):
         """Handle how to play screen input."""
@@ -473,50 +569,50 @@ class Game:
                 self.state = GameState.MAIN_MENU
                 self.network.close()
 
-        # Fullscreen toggle
+        # Fullscreen toggle (hardcoded)
         elif event.key == pygame.K_F11:
             self._toggle_fullscreen()
 
-        # Building hotkeys
-        elif event.key == pygame.K_h:
+        # Building hotkeys (hardcoded - not configurable)
+        elif event.key == pygame.K_b:
             self.placing_building = BuildingType.HOUSE
         elif event.key == pygame.K_f:
             self.placing_building = BuildingType.FARM
         elif event.key == pygame.K_t:
             self.placing_building = BuildingType.TOWER
 
-        # Grid snap toggle
-        elif event.key == pygame.K_g:
+        # Grid snap toggle (configurable)
+        elif event.key == self.keybinds['grid_snap']:
             self._toggle_grid_snap()
 
-        # Unit training hotkeys
-        elif event.key == pygame.K_p:
+        # Unit training hotkeys (configurable)
+        elif event.key == self.keybinds['train_peasant']:
             self._train_unit(UnitType.PEASANT)
-        elif event.key == pygame.K_k:
+        elif event.key == self.keybinds['train_knight']:
             self._train_unit(UnitType.KNIGHT)
-        elif event.key == pygame.K_c:
+        elif event.key == self.keybinds['train_cavalry']:
             self._train_unit(UnitType.CAVALRY)
-        elif event.key == pygame.K_n:
+        elif event.key == self.keybinds['train_cannon']:
             self._train_unit(UnitType.CANNON)
 
-        # Attack-move mode
-        elif event.key == pygame.K_a:
+        # Attack-move mode (configurable)
+        elif event.key == self.keybinds['attack_move']:
             if self.selected_units:
                 self.attack_move_mode = True
 
-        # Stop/Cancel
-        elif event.key == pygame.K_s:
+        # Stop/Cancel (configurable)
+        elif event.key == self.keybinds['stop']:
             self.placing_building = None
             self.attack_move_mode = False
             for unit in self.selected_units:
                 unit.clear_targets()
 
-        # Toggle healing
-        elif event.key == pygame.K_h:
+        # Toggle healing (configurable)
+        elif event.key == self.keybinds['heal_toggle']:
             self._toggle_player_healing()
 
-        # Deconstruct selected building
-        elif event.key == pygame.K_x:
+        # Deconstruct selected building (configurable)
+        elif event.key == self.keybinds['deconstruct']:
             if self.selected_building and self.selected_building.team == Team.PLAYER:
                 self._deconstruct_building(self.selected_building)
 
@@ -1400,6 +1496,8 @@ class Game:
             self._draw_settings()
         elif self.state == GameState.HOW_TO_PLAY:
             self._draw_how_to_play()
+        elif self.state == GameState.KEYBINDS:
+            self._draw_keybinds()
 
         pygame.display.flip()
 
@@ -1516,17 +1614,63 @@ class Game:
         # Grid snap button
         self.grid_snap_button.draw(self.screen)
 
+        # Keybinds button
+        self.keybinds_button.draw(self.screen)
+
         # Back button
         self.settings_back_button.draw(self.screen)
 
         # Instructions
         hint = self.font.render("Press F11 in-game to toggle fullscreen", True, LIGHT_GRAY)
-        hint_rect = hint.get_rect(center=(SCREEN_WIDTH // 2, 610))
+        hint_rect = hint.get_rect(center=(SCREEN_WIDTH // 2, 640))
         self.screen.blit(hint, hint_rect)
 
-        hint2 = self.font.render("Press G in-game to toggle grid snapping", True, LIGHT_GRAY)
-        hint2_rect = hint2.get_rect(center=(SCREEN_WIDTH // 2, 635))
-        self.screen.blit(hint2, hint2_rect)
+    def _draw_keybinds(self):
+        """Draw keybinds configuration menu."""
+        self.screen.fill(DARK_GRAY)
+
+        # Title
+        title = self.large_font.render("Keybinds", True, WHITE)
+        title_rect = title.get_rect(center=(SCREEN_WIDTH // 2, 100))
+        self.screen.blit(title, title_rect)
+
+        # Subtitle
+        subtitle = self.font.render("Click a key to rebind, press ESC to cancel", True, LIGHT_GRAY)
+        subtitle_rect = subtitle.get_rect(center=(SCREEN_WIDTH // 2, 140))
+        self.screen.blit(subtitle, subtitle_rect)
+
+        # Draw keybind rows
+        start_y = 180
+        row_height = 40
+        actions = list(self.keybinds.keys())
+
+        for i, action in enumerate(actions):
+            row_y = start_y + i * row_height
+
+            # Action name (left side)
+            action_name = self.keybind_names.get(action, action)
+            name_text = self.font.render(action_name, True, WHITE)
+            self.screen.blit(name_text, (SCREEN_WIDTH // 2 - 200, row_y + 8))
+
+            # Key button (right side)
+            key_rect = pygame.Rect(SCREEN_WIDTH // 2 + 50, row_y, 150, 35)
+
+            # Highlight if currently rebinding this action
+            if self.rebinding_key == action:
+                pygame.draw.rect(self.screen, YELLOW, key_rect)
+                key_text = self.font.render("Press a key...", True, BLACK)
+            else:
+                pygame.draw.rect(self.screen, GRAY, key_rect)
+                key_name = self._get_key_name(self.keybinds[action])
+                key_text = self.font.render(key_name, True, WHITE)
+
+            pygame.draw.rect(self.screen, BLACK, key_rect, 2)
+            text_rect = key_text.get_rect(center=key_rect.center)
+            self.screen.blit(key_text, text_rect)
+
+        # Buttons
+        self.keybinds_reset_button.draw(self.screen)
+        self.keybinds_back_button.draw(self.screen)
 
     def _draw_how_to_play(self):
         """Draw how to play screen with game instructions."""
@@ -1542,28 +1686,29 @@ class Game:
         right_x = SCREEN_WIDTH // 2 + 40
         y_start = 80
 
-        # Left column - Controls
+        # Left column - Controls (using configurable keybinds)
         y = y_start
         self.screen.blit(self.large_font.render("Controls", True, WHITE), (left_x, y))
-        y += 40
+        y += 35
 
         controls = [
             ("Camera", "WASD / Arrow Keys / Mouse Edge"),
             ("Select Units", "Left Click / Drag Box"),
             ("Move/Attack", "Right Click"),
-            ("Attack-Move", "A + Right Click"),
-            ("Stop/Cancel", "S"),
+            ("Attack-Move", self._get_key_name(self.keybinds['attack_move']) + " + Right Click"),
+            ("Stop/Cancel", self._get_key_name(self.keybinds['stop'])),
             ("", ""),
-            ("Train Peasant", "P"),
-            ("Train Knight", "K"),
-            ("Train Cavalry", "C"),
-            ("Train Cannon", "N"),
+            ("Train Peasant", self._get_key_name(self.keybinds['train_peasant'])),
+            ("Train Knight", self._get_key_name(self.keybinds['train_knight'])),
+            ("Train Cavalry", self._get_key_name(self.keybinds['train_cavalry'])),
+            ("Train Cannon", self._get_key_name(self.keybinds['train_cannon'])),
             ("", ""),
-            ("Build House", "H"),
+            ("Build House", "B"),
             ("Build Farm", "F"),
             ("Build Tower", "T"),
-            ("Grid Snap", "G"),
-            ("Deconstruct", "X"),
+            ("Grid Snap", self._get_key_name(self.keybinds['grid_snap'])),
+            ("Deconstruct", self._get_key_name(self.keybinds['deconstruct'])),
+            ("Toggle Healing", self._get_key_name(self.keybinds['heal_toggle'])),
             ("", ""),
             ("Fullscreen", "F11"),
             ("Return to Menu", "ESC"),
@@ -1575,12 +1720,12 @@ class Game:
                 key_surf = self.font.render(key, True, WHITE)
                 self.screen.blit(action_surf, (left_x, y))
                 self.screen.blit(key_surf, (left_x + 140, y))
-            y += 22
+            y += 20
 
         # Right column - Game Mechanics
         y = y_start
         self.screen.blit(self.large_font.render("Game Mechanics", True, WHITE), (right_x, y))
-        y += 40
+        y += 35
 
         mechanics = [
             "OBJECTIVE:",
@@ -1588,7 +1733,7 @@ class Game:
             "",
             "RESOURCES:",
             "  Gold - Used for all units/buildings",
-            "  Food - Consumed by units over time",
+            "  Food - Consumed by units, used for healing",
             "  Wood - Used for buildings and cannons",
             "",
             "BUILDINGS:",
@@ -1598,14 +1743,14 @@ class Game:
             "  Tower - Attacks enemies (needs 2 workers)",
             "",
             "CONSTRUCTION:",
-            "  1. Click building button (H/F/T)",
+            "  1. Click building button (B/F/T)",
             "  2. Click to place foundation",
             "  3. Right-click peasant on foundation",
-            "  4. Peasant will construct building",
             "",
-            "WORKERS:",
-            "  Right-click peasant on completed building",
-            "  to assign as worker for resources.",
+            "HEALING:",
+            "  Toggle with HEL button or " + self._get_key_name(self.keybinds['heal_toggle']) + " key",
+            "  Units auto-heal using food when enabled",
+            "  Costs 3 food per unit, heals 5 HP",
             "",
             "STARVATION:",
             "  If food runs out, units take damage!",
@@ -1616,7 +1761,7 @@ class Game:
             color = GOLD if line.endswith(":") else LIGHT_GRAY
             text_surf = self.font.render(line, True, color)
             self.screen.blit(text_surf, (right_x, y))
-            y += 20
+            y += 18
 
         # Back button
         self.how_to_play_back_button.draw(self.screen)
@@ -1940,7 +2085,8 @@ class Game:
             pygame.draw.rect(self.screen, BLACK, grid_rect, 2)
             grid_text = self.font.render("GRID", True, WHITE)
             self.screen.blit(grid_text, (215, content_y + 10))
-            snap_text = self.font.render("G", True, LIGHT_GRAY)
+            grid_key = self._get_key_name(self.keybinds['grid_snap'])
+            snap_text = self.font.render(grid_key, True, LIGHT_GRAY)
             self.screen.blit(snap_text, (233, content_y + 32))
             # Show On/Off status
             status_text = self.font.render("On" if self.grid_snap else "Off", True, WHITE)
@@ -1949,16 +2095,17 @@ class Game:
         # Command buttons (right side of left panel)
         cmd_x = 290
 
-        # Attack-move button (A)
+        # Attack-move button
         atk_rect = pygame.Rect(cmd_x, content_y, small_btn, small_btn)
         atk_color = RED if self.attack_move_mode else GRAY
         pygame.draw.rect(self.screen, atk_color, atk_rect)
         pygame.draw.rect(self.screen, BLACK, atk_rect, 2)
         atk_text = self.font.render("ATK", True, WHITE)
         self.screen.blit(atk_text, (cmd_x + 8, content_y + 14))
-        self.screen.blit(self.font.render("A", True, LIGHT_GRAY), (cmd_x + 18, content_y + 32))
+        atk_key = self._get_key_name(self.keybinds['attack_move'])
+        self.screen.blit(self.font.render(atk_key, True, LIGHT_GRAY), (cmd_x + 18, content_y + 32))
 
-        # Deconstruct button (X)
+        # Deconstruct button
         dec_rect = pygame.Rect(cmd_x + 50, content_y, small_btn, small_btn)
         dec_enabled = self.selected_building and self.selected_building.team == Team.PLAYER and self.selected_building.building_type != BuildingType.CASTLE
         dec_color = BROWN if dec_enabled else DARK_GRAY
@@ -1966,24 +2113,27 @@ class Game:
         pygame.draw.rect(self.screen, BLACK, dec_rect, 2)
         dec_text = self.font.render("DEL", True, WHITE if dec_enabled else GRAY)
         self.screen.blit(dec_text, (cmd_x + 58, content_y + 14))
-        self.screen.blit(self.font.render("X", True, LIGHT_GRAY), (cmd_x + 68, content_y + 32))
+        dec_key = self._get_key_name(self.keybinds['deconstruct'])
+        self.screen.blit(self.font.render(dec_key, True, LIGHT_GRAY), (cmd_x + 68, content_y + 32))
 
-        # Cancel/Stop button (S)
+        # Cancel/Stop button
         stop_rect = pygame.Rect(cmd_x + 100, content_y, small_btn, small_btn)
         pygame.draw.rect(self.screen, GRAY, stop_rect)
         pygame.draw.rect(self.screen, BLACK, stop_rect, 2)
         stop_text = self.font.render("STP", True, WHITE)
         self.screen.blit(stop_text, (cmd_x + 108, content_y + 14))
-        self.screen.blit(self.font.render("S", True, LIGHT_GRAY), (cmd_x + 118, content_y + 32))
+        stop_key = self._get_key_name(self.keybinds['stop'])
+        self.screen.blit(self.font.render(stop_key, True, LIGHT_GRAY), (cmd_x + 118, content_y + 32))
 
-        # Heal toggle button (H)
+        # Heal toggle button
         heal_rect = pygame.Rect(cmd_x + 150, content_y, small_btn, small_btn)
         heal_color = GREEN if self.player_healing_enabled else GRAY
         pygame.draw.rect(self.screen, heal_color, heal_rect)
         pygame.draw.rect(self.screen, BLACK, heal_rect, 2)
         heal_text = self.font.render("HEL", True, WHITE)
         self.screen.blit(heal_text, (cmd_x + 156, content_y + 14))
-        self.screen.blit(self.font.render("H", True, LIGHT_GRAY), (cmd_x + 168, content_y + 32))
+        heal_key = self._get_key_name(self.keybinds['heal_toggle'])
+        self.screen.blit(self.font.render(heal_key, True, LIGHT_GRAY), (cmd_x + 168, content_y + 32))
 
         # Menu button (ESC)
         menu_rect = pygame.Rect(cmd_x + 200, content_y, small_btn, small_btn)
