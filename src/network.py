@@ -185,11 +185,13 @@ class NetworkManager:
 
     def _receive_loop(self):
         """Receive messages from peer."""
+        print("[NET] Receive loop started")
         self.socket.settimeout(0.5)
         while self.running:
             try:
                 data = self._receive_message()
                 if data:
+                    print(f"[NET] Received: {data.get('type', 'unknown')} - {data.get('data', {}).get('command', '')}")
                     with self.lock:
                         self.message_queue.append(data)
             except socket.timeout:
@@ -197,6 +199,7 @@ class NetworkManager:
             except Exception as e:
                 print(f"Receive error: {e}")
                 break
+        print("[NET] Receive loop ended")
         self.connected = False
 
     def _send_message(self, data: dict):
@@ -266,7 +269,10 @@ class NetworkManager:
     def send_action(self, action: dict):
         """Send a player action to peer."""
         if self.connected:
+            print(f"[NET] Sending action: {action.get('command', 'unknown')}")
             self._send_message({'type': 'action', 'data': action})
+        else:
+            print(f"[NET] Cannot send - not connected")
 
     def send_unit_command(self, unit_uids: List[int], target_pos: Tuple[float, float],
                          target_unit_uid: Optional[int] = None,

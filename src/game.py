@@ -87,8 +87,9 @@ class Game:
         self.resource_timer = 0.0
         self.food_timer = 0.0
 
-        # UID counter
+        # UID counters (separate for player and enemy to keep them consistent in multiplayer)
         self._uid_counter = 0
+        self._enemy_uid_counter = 0
 
         # Fonts
         self.font = pygame.font.Font(None, 24)
@@ -186,10 +187,31 @@ class Game:
         self.resource_display = ResourceDisplay(SCREEN_WIDTH - 300, SCREEN_HEIGHT - 95)
         self.selection_info = SelectionInfo(520, SCREEN_HEIGHT - 70)
 
-    def next_uid(self) -> int:
-        """Get next unique ID."""
-        self._uid_counter += 1
-        return self._uid_counter
+    def next_uid(self, for_enemy: bool = False) -> int:
+        """Get next unique ID.
+
+        In multiplayer, player entities use UIDs 1-999, enemy entities use 1001+.
+        This ensures UIDs are consistent across both clients.
+        """
+        if for_enemy:
+            self._enemy_uid_counter += 1
+            return self._enemy_uid_counter + 1000
+        else:
+            self._uid_counter += 1
+            return self._uid_counter
+
+    def _translate_uid_from_peer(self, uid: int) -> int:
+        """Translate a UID received from peer to local UID.
+
+        In multiplayer, peer's player entities (1-999) are our enemy entities (1001+),
+        and peer's enemy entities (1001+) are our player entities (1-999).
+        """
+        if uid > 1000:
+            # Peer's enemy = our player
+            return uid - 1000
+        else:
+            # Peer's player = our enemy
+            return uid + 1000
 
     # =========================================================================
     # GAME INITIALIZATION
@@ -215,8 +237,9 @@ class Game:
         self.enemy_healing_enabled = False
         self.heal_timer = 0.0
 
-        # Reset UID counter
+        # Reset UID counters
         self._uid_counter = 0
+        self._enemy_uid_counter = 0
 
         # Create player base
         self._create_player_base()
@@ -266,20 +289,20 @@ class Game:
         """Create enemy starting base."""
         castle = Building(MAP_WIDTH - 300, 300, BuildingType.CASTLE, Team.ENEMY,
                          _mod_manager=self.mod_manager)
-        castle.uid = self.next_uid()
+        castle.uid = self.next_uid(for_enemy=True)
         self.buildings.append(castle)
 
     def _create_enemy_starting_units(self):
-        """Create enemy starting units for AI mode."""
+        """Create enemy starting units (for AI or multiplayer)."""
         for i in range(3):
             peasant = Unit(MAP_WIDTH - 350 - i * 40, 250, UnitType.PEASANT, Team.ENEMY,
                           _mod_manager=self.mod_manager)
-            peasant.uid = self.next_uid()
+            peasant.uid = self.next_uid(for_enemy=True)
             self.units.append(peasant)
 
         knight = Unit(MAP_WIDTH - 300, 200, UnitType.KNIGHT, Team.ENEMY,
                      _mod_manager=self.mod_manager)
-        knight.uid = self.next_uid()
+        knight.uid = self.next_uid(for_enemy=True)
         self.units.append(knight)
 
     # =========================================================================
@@ -1550,26 +1573,34 @@ class Game:
         """Handle incoming network messages."""
         messages = self.network.get_messages()
         for msg in messages:
+            print(f"[GAME] Processing message: {msg.get('type', 'unknown')}")
             if msg['type'] == 'action':
                 data = msg['data']
                 command = data.get('command')
+                print(f"[GAME] Processing command: {command}")
 
                 if command == 'move':
                     # Handle unit movement and attacks
+                    # Translate UIDs from peer's perspective to ours
+                    translated_unit_uids = [self._translate_uid_from_peer(uid) for uid in data['units']]
+
                     target_unit = None
                     target_building = None
 
                     if data.get('target_unit'):
+                        translated_target = self._translate_uid_from_peer(data['target_unit'])
                         target_unit = next(
-                            (u for u in self.units if u.uid == data['target_unit']), None
+                            (u for u in self.units if u.uid == translated_target), None
                         )
                     if data.get('target_building'):
+                        translated_target = self._translate_uid_from_peer(data['target_building'])
                         target_building = next(
-                            (b for b in self.buildings if b.uid == data['target_building']), None
+                            (b for b in self.buildings if b.uid == translated_target), None
                         )
 
                     for unit in self.units:
-                        if unit.uid in data['units'] and unit.team == Team.ENEMY:
+                        if unit.uid in translated_unit_uids:
+                            print(f"[GAME] Moving unit {unit.uid}")
                             # Unassign from work if moving
                             if unit.unit_type == UnitType.PEASANT:
                                 if unit.assigned_building:
@@ -1588,17 +1619,21 @@ class Game:
                                 unit.set_move_target(*data['target'])
 
                 elif command == 'assign_worker':
-                    # Handle worker assignment
+                    # Handle worker assignment - translate UIDs
+                    translated_unit_uid = self._translate_uid_from_peer(data['unit'])
                     unit = next(
-                        (u for u in self.units if u.uid == data['unit'] and u.team == Team.ENEMY), None
+                        (u for u in self.units if u.uid == translated_unit_uid), None
                     )
+                    print(f"[GAME] Assign worker: peer uid {data['unit']} -> local uid {translated_unit_uid}, found: {unit is not None}")
                     if unit:
                         if data['building'] is None:
                             unit.unassign_from_building()
                         else:
+                            translated_building_uid = self._translate_uid_from_peer(data['building'])
                             building = next(
-                                (b for b in self.buildings if b.uid == data['building']), None
+                                (b for b in self.buildings if b.uid == translated_building_uid), None
                             )
+                            print(f"[GAME] Building: peer uid {data['building']} -> local uid {translated_building_uid}, found: {building is not None}")
                             if building:
                                 unit.assign_to_building(building)
 
@@ -1619,7 +1654,9 @@ class Game:
                         y = castle.y + math.sin(angle) * 80
 
                         unit = Unit(x, y, unit_type, Team.ENEMY, _mod_manager=self.mod_manager)
-                        unit.uid = data.get('uid', self.next_uid())
+                        # Translate the UID from peer
+                        unit.uid = self._translate_uid_from_peer(data.get('uid', 0))
+                        print(f"[GAME] Trained unit with uid {unit.uid}")
                         self.units.append(unit)
 
                 elif command == 'build':
@@ -1632,15 +1669,18 @@ class Game:
                         building_type, Team.ENEMY,
                         _mod_manager=self.mod_manager
                     )
-                    building.uid = data.get('uid', self.next_uid())
+                    # Translate the UID from peer
+                    building.uid = self._translate_uid_from_peer(data.get('uid', 0))
                     building.completed = False
                     building.build_progress = 0.0
+                    print(f"[GAME] Built building with uid {building.uid}")
                     self.buildings.append(building)
 
                 elif command == 'deconstruct':
-                    # Handle enemy building deconstruction
+                    # Handle enemy building deconstruction - translate UID
+                    translated_uid = self._translate_uid_from_peer(data['building'])
                     building = next(
-                        (b for b in self.buildings if b.uid == data['building'] and b.team == Team.ENEMY), None
+                        (b for b in self.buildings if b.uid == translated_uid), None
                     )
                     if building:
                         # Unassign workers
@@ -1652,9 +1692,10 @@ class Game:
                         self.buildings.remove(building)
 
                 elif command == 'unit_death':
-                    # Handle unit death from peer
+                    # Handle unit death from peer - translate UID
+                    translated_uid = self._translate_uid_from_peer(data['unit'])
                     unit = next(
-                        (u for u in self.units if u.uid == data['unit']), None
+                        (u for u in self.units if u.uid == translated_uid), None
                     )
                     if unit:
                         self.blood_effects.append(BloodEffect(unit.x, unit.y))
@@ -1665,9 +1706,10 @@ class Game:
                                 u.target_unit = None
 
                 elif command == 'building_destroyed':
-                    # Handle building destruction from peer
+                    # Handle building destruction from peer - translate UID
+                    translated_uid = self._translate_uid_from_peer(data['building'])
                     building = next(
-                        (b for b in self.buildings if b.uid == data['building']), None
+                        (b for b in self.buildings if b.uid == translated_uid), None
                     )
                     if building:
                         for unit in self.units:
@@ -1681,25 +1723,28 @@ class Game:
                             self.buildings.remove(building)
 
                 elif command == 'unit_damage':
-                    # Sync unit health
+                    # Sync unit health - translate UID
+                    translated_uid = self._translate_uid_from_peer(data['unit'])
                     unit = next(
-                        (u for u in self.units if u.uid == data['unit']), None
+                        (u for u in self.units if u.uid == translated_uid), None
                     )
                     if unit:
                         unit.health = data['health']
 
                 elif command == 'building_damage':
-                    # Sync building health
+                    # Sync building health - translate UID
+                    translated_uid = self._translate_uid_from_peer(data['building'])
                     building = next(
-                        (b for b in self.buildings if b.uid == data['building']), None
+                        (b for b in self.buildings if b.uid == translated_uid), None
                     )
                     if building:
                         building.health = data['health']
 
                 elif command == 'building_progress':
-                    # Sync building construction progress
+                    # Sync building construction progress - translate UID
+                    translated_uid = self._translate_uid_from_peer(data['building'])
                     building = next(
-                        (b for b in self.buildings if b.uid == data['building']), None
+                        (b for b in self.buildings if b.uid == translated_uid), None
                     )
                     if building:
                         building.build_progress = data['progress']
