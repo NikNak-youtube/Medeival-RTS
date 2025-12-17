@@ -118,7 +118,7 @@ BUILDING_COSTS = {
 
 BUILDING_STATS = {
     'house': {'health': 300},
-    'castle': {'health': 1000},
+    'castle': {'health': 2000},
     'farm': {'health': 200},
     'tower': {'health': 500}
 }

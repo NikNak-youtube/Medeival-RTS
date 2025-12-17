@@ -803,8 +803,16 @@ class Game:
                 unit.constructing_building = under_construction
                 unit.set_move_target(under_construction.x, under_construction.y)
             elif friendly_building and unit.unit_type == UnitType.PEASANT:
-                # Assign peasant to work at friendly building
-                unit.assign_to_building(friendly_building)
+                # Check if building has room for more workers
+                current_workers = friendly_building.count_workers(self.units)
+                max_workers = friendly_building.get_max_workers()
+                # Also count peasants already assigned but not yet working
+                assigned_count = sum(1 for u in self.units
+                                   if u.assigned_building == friendly_building
+                                   and u.unit_type == UnitType.PEASANT)
+                if assigned_count < max_workers:
+                    # Assign peasant to work at friendly building
+                    unit.assign_to_building(friendly_building)
             else:
                 unit.set_move_target(world_pos[0], world_pos[1])
 
