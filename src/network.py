@@ -34,6 +34,11 @@ class NetworkManager:
         self.message_queue: List[dict] = []
         self.lock = threading.Lock()
 
+        # Connection state for async connect
+        self.connecting = False
+        self.connect_result: Optional[bool] = None
+        self.connect_thread: Optional[threading.Thread] = None
+
     # =========================================================================
     # HOST FUNCTIONS
     # =========================================================================
@@ -107,7 +112,24 @@ class NetworkManager:
     # =========================================================================
 
     def connect_to_host(self, ip: str, port: int = DEFAULT_PORT) -> bool:
-        """Connect to a hosted game."""
+        """Start connecting to a hosted game (non-blocking)."""
+        if self.connecting:
+            return False
+
+        self.connecting = True
+        self.connect_result = None
+
+        # Start connection in background thread
+        self.connect_thread = threading.Thread(
+            target=self._connect_thread, args=(ip, port)
+        )
+        self.connect_thread.daemon = True
+        self.connect_thread.start()
+
+        return True
+
+    def _connect_thread(self, ip: str, port: int):
+        """Background thread for connecting and waiting for accept."""
         try:
             self.socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
             self.socket.settimeout(10)
@@ -119,14 +141,7 @@ class NetworkManager:
             hostname = socket.gethostname()
             self._send_message({'type': 'invite_request', 'from': hostname})
 
-            return True
-        except Exception as e:
-            print(f"Failed to connect: {e}")
-            return False
-
-    def wait_for_accept(self) -> Optional[bool]:
-        """Wait for host to accept invite. Returns True/False/None."""
-        try:
+            # Wait for response
             self.socket.settimeout(30)
             data = self._receive_message()
             if data and data.get('type') == 'invite_response':
@@ -134,14 +149,28 @@ class NetworkManager:
                     self.connected = True
                     self.running = True
                     self._start_receive_loop()
-                    return True
+                    self.connect_result = True
                 else:
-                    return False
+                    self.connect_result = False
+            else:
+                self.connect_result = False
         except socket.timeout:
-            pass
+            self.connect_result = False
         except Exception as e:
-            print(f"Wait for accept error: {e}")
-        return None
+            print(f"Connect error: {e}")
+            self.connect_result = False
+        finally:
+            self.connecting = False
+
+    def get_connect_status(self) -> Optional[bool]:
+        """Check connection status. Returns True/False when done, None if still connecting."""
+        if self.connecting:
+            return None
+        return self.connect_result
+
+    def wait_for_accept(self) -> Optional[bool]:
+        """Check if connection was accepted (non-blocking now)."""
+        return self.get_connect_status()
 
     # =========================================================================
     # MESSAGE HANDLING
@@ -286,6 +315,8 @@ class NetworkManager:
         """Close the connection."""
         self.running = False
         self.connected = False
+        self.connecting = False
+        self.connect_result = None
         if self.socket:
             try:
                 self.socket.close()

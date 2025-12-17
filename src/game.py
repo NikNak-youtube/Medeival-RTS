@@ -316,6 +316,10 @@ class Game:
                     if event.key == pygame.K_ESCAPE:
                         self.state = GameState.MAIN_MENU
                         self.network.close()
+                elif self.state == GameState.CONNECTING:
+                    if event.key == pygame.K_ESCAPE:
+                        self.network.close()
+                        self.state = GameState.MULTIPLAYER_LOBBY
                 elif self.state == GameState.KEYBINDS:
                     # Pass key event to keybinds handler for rebinding
                     self._handle_keybinds_input(mouse_pos, False, event)
@@ -333,6 +337,8 @@ class Game:
             self._handle_lobby_input(mouse_pos, mouse_clicked)
         elif self.state == GameState.WAITING_FOR_ACCEPT:
             self._handle_waiting_input(mouse_pos, mouse_clicked)
+        elif self.state == GameState.CONNECTING:
+            self._handle_connecting_input(mouse_pos, mouse_clicked)
         elif self.state == GameState.DIFFICULTY_SELECT:
             self._handle_difficulty_input(mouse_pos, mouse_clicked)
         elif self.state == GameState.SETTINGS:
@@ -533,6 +539,14 @@ class Game:
         if clicked and self.back_button.is_clicked(mouse_pos, True):
             self.network.close()
             self.state = GameState.MAIN_MENU
+
+    def _handle_connecting_input(self, mouse_pos: Tuple[int, int], clicked: bool):
+        """Handle connecting screen input."""
+        self.back_button.update(mouse_pos)
+
+        if clicked and self.back_button.is_clicked(mouse_pos, True):
+            self.network.close()
+            self.state = GameState.MULTIPLAYER_LOBBY
 
     def _handle_game_input(self, mouse_pos: Tuple[int, int], clicked: bool,
                           right_clicked: bool):
@@ -1554,6 +1568,9 @@ class Game:
         if self.state == GameState.CONNECTING:
             title = self.large_font.render("Connecting...", True, WHITE)
             subtitle = self.font.render("Waiting for host to accept", True, LIGHT_GRAY)
+            hint = self.font.render("Press ESC or click Cancel to abort", True, LIGHT_GRAY)
+            hint_rect = hint.get_rect(center=(SCREEN_WIDTH // 2, 380))
+            self.screen.blit(hint, hint_rect)
         else:
             if self.network.pending_invite:
                 title = self.large_font.render("Incoming Connection", True, WHITE)
