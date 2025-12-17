@@ -97,6 +97,7 @@ class Game:
 
         # Settings
         self.fullscreen = False
+        self.vsync = False
         self.selected_difficulty = Difficulty.NORMAL
         self.grid_snap = False  # Toggle for grid snapping when placing buildings
         self.grid_size = 64  # Grid cell size for snapping
@@ -138,8 +139,9 @@ class Game:
 
         # Settings buttons
         self.fullscreen_button = Button(SCREEN_WIDTH // 2 - 150, 300, 300, 50, "Fullscreen: Off")
-        self.grid_snap_button = Button(SCREEN_WIDTH // 2 - 150, 370, 300, 50, "Grid Snap: Off")
-        self.settings_back_button = Button(SCREEN_WIDTH // 2 - 150, 440, 300, 50, "Back")
+        self.vsync_button = Button(SCREEN_WIDTH // 2 - 150, 370, 300, 50, "VSync: Off")
+        self.grid_snap_button = Button(SCREEN_WIDTH // 2 - 150, 440, 300, 50, "Grid Snap: Off")
+        self.settings_back_button = Button(SCREEN_WIDTH // 2 - 150, 510, 300, 50, "Back")
 
         # Multiplayer UI
         self.ip_input = TextInput(SCREEN_WIDTH // 2 - 150, 350, 300, 40, "Enter IP address")
@@ -345,12 +347,15 @@ class Game:
     def _handle_settings_input(self, mouse_pos: Tuple[int, int], clicked: bool):
         """Handle settings menu input."""
         self.fullscreen_button.update(mouse_pos)
+        self.vsync_button.update(mouse_pos)
         self.grid_snap_button.update(mouse_pos)
         self.settings_back_button.update(mouse_pos)
 
         if clicked:
             if self.fullscreen_button.is_clicked(mouse_pos, True):
                 self._toggle_fullscreen()
+            elif self.vsync_button.is_clicked(mouse_pos, True):
+                self._toggle_vsync()
             elif self.grid_snap_button.is_clicked(mouse_pos, True):
                 self._toggle_grid_snap()
             elif self.settings_back_button.is_clicked(mouse_pos, True):
@@ -360,11 +365,31 @@ class Game:
         """Toggle fullscreen mode."""
         self.fullscreen = not self.fullscreen
         if self.fullscreen:
-            self.screen = pygame.display.set_mode((SCREEN_WIDTH, SCREEN_HEIGHT), pygame.FULLSCREEN)
+            flags = pygame.FULLSCREEN
+            if self.vsync:
+                flags |= pygame.DOUBLEBUF
+            self.screen = pygame.display.set_mode((SCREEN_WIDTH, SCREEN_HEIGHT), flags, vsync=1 if self.vsync else 0)
             self.fullscreen_button.text = "Fullscreen: On"
         else:
-            self.screen = pygame.display.set_mode((SCREEN_WIDTH, SCREEN_HEIGHT))
+            self.screen = pygame.display.set_mode((SCREEN_WIDTH, SCREEN_HEIGHT), vsync=1 if self.vsync else 0)
             self.fullscreen_button.text = "Fullscreen: Off"
+
+    def _toggle_vsync(self):
+        """Toggle VSync mode."""
+        self.vsync = not self.vsync
+        # Re-create display with new vsync setting
+        if self.fullscreen:
+            flags = pygame.FULLSCREEN
+            if self.vsync:
+                flags |= pygame.DOUBLEBUF
+            self.screen = pygame.display.set_mode((SCREEN_WIDTH, SCREEN_HEIGHT), flags, vsync=1 if self.vsync else 0)
+        else:
+            self.screen = pygame.display.set_mode((SCREEN_WIDTH, SCREEN_HEIGHT), vsync=1 if self.vsync else 0)
+
+        if self.vsync:
+            self.vsync_button.text = "VSync: On"
+        else:
+            self.vsync_button.text = "VSync: Off"
 
     def _toggle_grid_snap(self):
         """Toggle grid snapping for building placement."""
@@ -1485,6 +1510,9 @@ class Game:
         # Fullscreen button
         self.fullscreen_button.draw(self.screen)
 
+        # VSync button
+        self.vsync_button.draw(self.screen)
+
         # Grid snap button
         self.grid_snap_button.draw(self.screen)
 
@@ -1493,11 +1521,11 @@ class Game:
 
         # Instructions
         hint = self.font.render("Press F11 in-game to toggle fullscreen", True, LIGHT_GRAY)
-        hint_rect = hint.get_rect(center=(SCREEN_WIDTH // 2, 540))
+        hint_rect = hint.get_rect(center=(SCREEN_WIDTH // 2, 610))
         self.screen.blit(hint, hint_rect)
 
         hint2 = self.font.render("Press G in-game to toggle grid snapping", True, LIGHT_GRAY)
-        hint2_rect = hint2.get_rect(center=(SCREEN_WIDTH // 2, 565))
+        hint2_rect = hint2.get_rect(center=(SCREEN_WIDTH // 2, 635))
         self.screen.blit(hint2, hint2_rect)
 
     def _draw_how_to_play(self):
