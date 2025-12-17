@@ -61,10 +61,11 @@ class NetworkManager:
 
     def _host_accept_loop(self):
         """Accept incoming connections (host only)."""
+        listen_socket = self.socket  # Keep reference to listening socket
         while self.running and not self.connected:
             try:
-                conn, addr = self.socket.accept()
-                self.socket = conn
+                conn, addr = listen_socket.accept()
+                self.socket = conn  # Replace with connection socket
                 self.peer_address = addr
 
                 # Wait for invite request
@@ -72,11 +73,19 @@ class NetworkManager:
                 if data and data.get('type') == 'invite_request':
                     self.pending_invite = True
                     self.invite_from = data.get('from', addr[0])
+                # Exit loop after accepting a connection
+                break
             except socket.timeout:
                 continue
             except Exception as e:
                 print(f"Accept error: {e}")
                 break
+        # Close the listening socket since we no longer need it
+        try:
+            if listen_socket and listen_socket != self.socket:
+                listen_socket.close()
+        except:
+            pass
 
     def accept_invite(self):
         """Accept a pending invite."""
