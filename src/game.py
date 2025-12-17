@@ -990,6 +990,9 @@ class Game:
         # Cavalry do reduced damage to buildings (50%)
         if attacker.unit_type == UnitType.CAVALRY:
             damage = damage // 2
+        # Cannons do bonus damage to buildings (1.2x)
+        elif attacker.unit_type == UnitType.CANNON:
+            damage = int(damage * 1.2)
 
         if building.take_damage(damage):
             self.buildings.remove(building)
