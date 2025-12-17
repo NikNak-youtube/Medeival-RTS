@@ -255,12 +255,24 @@ class Minimap:
             pygame.draw.rect(screen, color,
                            (x - size // 2, y - size // 2, size, size))
 
-        # Draw units
+        # Draw units with different sizes based on unit type
         for unit in units:
             color = (50, 50, 200) if unit.team == player_team else (200, 50, 50)
             x = self.rect.x + int(unit.x * self.scale_x)
             y = self.rect.y + int(unit.y * self.scale_y)
-            pygame.draw.circle(screen, color, (x, y), 2)
+            # Different sizes for different unit types
+            unit_type_name = unit.unit_type.name
+            if unit_type_name == 'PEASANT':
+                radius = 1
+            elif unit_type_name == 'KNIGHT':
+                radius = 2
+            elif unit_type_name == 'CAVALRY':
+                radius = 3
+            elif unit_type_name == 'CANNON':
+                radius = 4
+            else:
+                radius = 2
+            pygame.draw.circle(screen, color, (x, y), radius)
 
         # Draw camera viewport
         cam_x = self.rect.x + int(camera_rect.x * self.scale_x)
