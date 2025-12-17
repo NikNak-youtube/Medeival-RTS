@@ -16,7 +16,7 @@ from .constants import (
     FOOD_CONSUMPTION_INTERVAL, FOOD_PER_UNIT, STARVATION_DAMAGE, WORKER_RANGE, TOWER_STATS
 )
 from .assets import AssetManager, ModManager, get_unit_asset_name, get_building_asset_name
-from .entities import Unit, Building, BloodEffect, Resources
+from .entities import Unit, Building, BloodEffect, Resources, Projectile
 from .camera import Camera
 from .ai import AIBot
 from .network import NetworkManager
@@ -57,6 +57,7 @@ class Game:
         self.units: List[Unit] = []
         self.buildings: List[Building] = []
         self.blood_effects: List[BloodEffect] = []
+        self.projectiles: List[Projectile] = []
 
         # Resources
         self.player_resources = Resources()
@@ -167,6 +168,7 @@ class Game:
         self.units.clear()
         self.buildings.clear()
         self.blood_effects.clear()
+        self.projectiles.clear()
         self.selected_units.clear()
         self.selected_building = None
         self.placing_building = None
@@ -881,6 +883,9 @@ class Game:
         # Update tower attacks
         self._update_tower_attacks()
 
+        # Update projectiles
+        self._update_projectiles()
+
         # Update effects
         self._update_effects()
 
@@ -980,8 +985,24 @@ class Game:
         """Perform an attack."""
         damage = max(1, attacker.attack - defender.defense // 2)
         damage = int(damage * random.uniform(0.8, 1.2))
-        defender.take_damage(damage)
-        self.blood_effects.append(BloodEffect(defender.x, defender.y, 0.5, 0.5))
+
+        # Cannons fire projectiles instead of instant damage
+        if attacker.unit_type == UnitType.CANNON:
+            projectile = Projectile(
+                x=attacker.x,
+                y=attacker.y,
+                target_x=defender.x,
+                target_y=defender.y,
+                speed=300.0,
+                damage=damage,
+                target_unit=defender,
+                team=attacker.team,
+                size=5
+            )
+            self.projectiles.append(projectile)
+        else:
+            defender.take_damage(damage)
+            self.blood_effects.append(BloodEffect(defender.x, defender.y, 0.5, 0.5))
 
     def _do_attack_building(self, attacker: Unit, building: Building):
         """Attack a building."""
@@ -990,9 +1011,23 @@ class Game:
         # Cavalry do reduced damage to buildings (50%)
         if attacker.unit_type == UnitType.CAVALRY:
             damage = damage // 2
-        # Cannons do bonus damage to buildings (1.2x)
+        # Cannons do bonus damage to buildings (1.2x) and fire projectiles
         elif attacker.unit_type == UnitType.CANNON:
             damage = int(damage * 1.2)
+            # Fire projectile instead of instant damage
+            projectile = Projectile(
+                x=attacker.x,
+                y=attacker.y,
+                target_x=building.x,
+                target_y=building.y,
+                speed=300.0,
+                damage=damage,
+                target_building=building,
+                team=attacker.team,
+                size=5
+            )
+            self.projectiles.append(projectile)
+            return  # Don't apply instant damage
 
         if building.take_damage(damage):
             self.buildings.remove(building)
@@ -1145,22 +1180,62 @@ class Game:
                         nearest_dist = dist
                         nearest_enemy = unit
 
-            # Attack if target found
+            # Attack if target found - spawn projectile
             if nearest_enemy:
                 building.last_attack = current_time
-                # 70% hit chance
-                if random.random() < TOWER_STATS['hit_chance']:
-                    damage = TOWER_STATS['attack']
-                    if nearest_enemy.take_damage(damage):
-                        # Target killed
-                        self.blood_effects.append(BloodEffect(nearest_enemy.x, nearest_enemy.y))
-                        self.units.remove(nearest_enemy)
-                        for u in self.units:
-                            if u.target_unit == nearest_enemy:
-                                u.target_unit = None
-                    else:
-                        # Hit but not killed
-                        self.blood_effects.append(BloodEffect(nearest_enemy.x, nearest_enemy.y, 0.5, 0.5))
+                # Create projectile that travels to target
+                projectile = Projectile(
+                    x=building.x,
+                    y=building.y - 30,  # Spawn from top of tower
+                    target_x=nearest_enemy.x,
+                    target_y=nearest_enemy.y,
+                    speed=350.0,
+                    damage=TOWER_STATS['attack'],
+                    target_unit=nearest_enemy,
+                    team=building.team,
+                    size=4,
+                    is_tower_projectile=True  # Tower uses hit chance
+                )
+                self.projectiles.append(projectile)
+
+    def _update_projectiles(self):
+        """Update all projectiles and handle hits."""
+        for projectile in self.projectiles[:]:
+            # Update projectile position
+            hit = projectile.update(self.dt)
+
+            if hit:
+                # Projectile reached target
+                self.projectiles.remove(projectile)
+
+                # Check if target is still valid
+                if projectile.target_unit and projectile.target_unit.is_alive():
+                    # Tower projectiles have 70% hit chance, cannon projectiles always hit
+                    should_hit = True
+                    if projectile.is_tower_projectile:
+                        should_hit = random.random() < TOWER_STATS['hit_chance']
+
+                    if should_hit:
+                        if projectile.target_unit.take_damage(projectile.damage):
+                            # Target killed
+                            self.blood_effects.append(BloodEffect(projectile.target_unit.x, projectile.target_unit.y))
+                            if projectile.target_unit in self.units:
+                                self.units.remove(projectile.target_unit)
+                                for u in self.units:
+                                    if u.target_unit == projectile.target_unit:
+                                        u.target_unit = None
+                        else:
+                            # Hit but not killed
+                            self.blood_effects.append(BloodEffect(projectile.target_unit.x, projectile.target_unit.y, 0.5, 0.5))
+
+                elif projectile.target_building and not projectile.target_building.is_destroyed():
+                    # Cannon projectile hitting building
+                    if projectile.target_building.take_damage(projectile.damage):
+                        if projectile.target_building in self.buildings:
+                            self.buildings.remove(projectile.target_building)
+                            for u in self.units:
+                                if u.target_building == projectile.target_building:
+                                    u.target_building = None
 
     def _update_effects(self):
         """Update visual effects."""
@@ -1523,6 +1598,7 @@ class Game:
         self._draw_terrain()
         self._draw_buildings()
         self._draw_effects()
+        self._draw_projectiles()
         self._draw_units()
         self._draw_movement_lines()
         self._draw_selection_rect()
@@ -1655,6 +1731,12 @@ class Game:
             blood.set_alpha(effect.get_alpha())
             rect = blood.get_rect(center=screen_pos)
             self.screen.blit(blood, rect)
+
+    def _draw_projectiles(self):
+        """Draw all projectiles as small black dots."""
+        for projectile in self.projectiles:
+            screen_pos = self.camera.world_to_screen(projectile.x, projectile.y)
+            pygame.draw.circle(self.screen, BLACK, screen_pos, projectile.size)
 
     def _draw_movement_lines(self):
         """Draw 80% transparent white lines showing where selected units are moving."""

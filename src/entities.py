@@ -447,3 +447,49 @@ class BloodEffect:
     def get_alpha(self) -> int:
         """Get current alpha value."""
         return max(0, min(255, self.alpha))
+
+
+@dataclass
+class Projectile:
+    """Visual projectile for towers and cannons."""
+    x: float
+    y: float
+    target_x: float
+    target_y: float
+    speed: float = 400.0  # Pixels per second
+    damage: int = 0
+    target_unit: Optional['Unit'] = None
+    target_building: Optional['Building'] = None
+    team: Team = Team.PLAYER
+    size: int = 4  # Radius of the projectile dot
+    is_tower_projectile: bool = False  # Tower projectiles use hit chance
+
+    def update(self, dt: float) -> bool:
+        """Update projectile position. Returns True if projectile reached target."""
+        # Update target position if tracking a unit
+        if self.target_unit and self.target_unit.is_alive():
+            self.target_x = self.target_unit.x
+            self.target_y = self.target_unit.y
+        elif self.target_building and not self.target_building.is_destroyed():
+            self.target_x = self.target_building.x
+            self.target_y = self.target_building.y
+
+        # Calculate distance to target
+        dx = self.target_x - self.x
+        dy = self.target_y - self.y
+        dist = math.sqrt(dx * dx + dy * dy)
+
+        if dist < 10:  # Close enough to hit
+            return True
+
+        # Move towards target
+        move_dist = self.speed * dt
+        if move_dist >= dist:
+            self.x = self.target_x
+            self.y = self.target_y
+            return True
+
+        # Normalize and move
+        self.x += (dx / dist) * move_dist
+        self.y += (dy / dist) * move_dist
+        return False
