@@ -986,6 +986,11 @@ class Game:
     def _do_attack_building(self, attacker: Unit, building: Building):
         """Attack a building."""
         damage = attacker.attack
+
+        # Cavalry do reduced damage to buildings (50%)
+        if attacker.unit_type == UnitType.CAVALRY:
+            damage = damage // 2
+
         if building.take_damage(damage):
             self.buildings.remove(building)
             for u in self.units:
