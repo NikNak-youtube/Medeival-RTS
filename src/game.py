@@ -169,11 +169,12 @@ class Game:
         self.difficulty_back_button = Button(SCREEN_WIDTH // 2 - 150, 560, 300, 45, "Back")
 
         # Settings buttons
-        self.fullscreen_button = Button(SCREEN_WIDTH // 2 - 150, 280, 300, 50, "Fullscreen: Off")
-        self.vsync_button = Button(SCREEN_WIDTH // 2 - 150, 345, 300, 50, "VSync: Off")
-        self.grid_snap_button = Button(SCREEN_WIDTH // 2 - 150, 410, 300, 50, "Grid Snap: Off")
-        self.keybinds_button = Button(SCREEN_WIDTH // 2 - 150, 475, 300, 50, "Keybinds")
-        self.settings_back_button = Button(SCREEN_WIDTH // 2 - 150, 540, 300, 50, "Back")
+        self.fullscreen_button = Button(SCREEN_WIDTH // 2 - 150, 250, 300, 50, "Fullscreen: Off")
+        self.vsync_button = Button(SCREEN_WIDTH // 2 - 150, 310, 300, 50, "VSync: Off")
+        self.sound_button = Button(SCREEN_WIDTH // 2 - 150, 370, 300, 50, "Sound: On")
+        self.grid_snap_button = Button(SCREEN_WIDTH // 2 - 150, 430, 300, 50, "Grid Snap: Off")
+        self.keybinds_button = Button(SCREEN_WIDTH // 2 - 150, 490, 300, 50, "Keybinds")
+        self.settings_back_button = Button(SCREEN_WIDTH // 2 - 150, 550, 300, 50, "Back")
 
         # Keybinds menu buttons
         self.keybinds_back_button = Button(SCREEN_WIDTH // 2 - 75, SCREEN_HEIGHT - 60, 150, 40, "Back")
@@ -469,6 +470,7 @@ class Game:
         """Handle settings menu input."""
         self.fullscreen_button.update(mouse_pos)
         self.vsync_button.update(mouse_pos)
+        self.sound_button.update(mouse_pos)
         self.grid_snap_button.update(mouse_pos)
         self.keybinds_button.update(mouse_pos)
         self.settings_back_button.update(mouse_pos)
@@ -478,6 +480,8 @@ class Game:
                 self._toggle_fullscreen()
             elif self.vsync_button.is_clicked(mouse_pos, True):
                 self._toggle_vsync()
+            elif self.sound_button.is_clicked(mouse_pos, True):
+                self._toggle_sound()
             elif self.grid_snap_button.is_clicked(mouse_pos, True):
                 self._toggle_grid_snap()
             elif self.keybinds_button.is_clicked(mouse_pos, True):
@@ -523,6 +527,14 @@ class Game:
             self.grid_snap_button.text = "Grid Snap: On"
         else:
             self.grid_snap_button.text = "Grid Snap: Off"
+
+    def _toggle_sound(self):
+        """Toggle sound effects on/off."""
+        self.sound_enabled = not self.sound_enabled
+        if self.sound_enabled:
+            self.sound_button.text = "Sound: On"
+        else:
+            self.sound_button.text = "Sound: Off"
 
     def _get_key_name(self, key_code: int) -> str:
         """Get a human-readable name for a key code."""
@@ -1955,7 +1967,7 @@ class Game:
 
         # Title
         title = self.large_font.render("Settings", True, WHITE)
-        title_rect = title.get_rect(center=(SCREEN_WIDTH // 2, 200))
+        title_rect = title.get_rect(center=(SCREEN_WIDTH // 2, 180))
         self.screen.blit(title, title_rect)
 
         # Fullscreen button
@@ -1963,6 +1975,9 @@ class Game:
 
         # VSync button
         self.vsync_button.draw(self.screen)
+
+        # Sound button
+        self.sound_button.draw(self.screen)
 
         # Grid snap button
         self.grid_snap_button.draw(self.screen)
@@ -1975,7 +1990,7 @@ class Game:
 
         # Instructions
         hint = self.font.render("Press F11 in-game to toggle fullscreen", True, LIGHT_GRAY)
-        hint_rect = hint.get_rect(center=(SCREEN_WIDTH // 2, 640))
+        hint_rect = hint.get_rect(center=(SCREEN_WIDTH // 2, 620))
         self.screen.blit(hint, hint_rect)
 
     def _draw_keybinds(self):
