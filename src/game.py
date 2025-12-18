@@ -955,6 +955,8 @@ class Game:
         sel_btn_x = constants.SCREEN_WIDTH - 170
         if pygame.Rect(sel_btn_x, content_y, 80, small_btn).collidepoint(mouse_pos):
             self._select_all_military()
+            # Clear selection_start so mouse-up doesn't trigger _finish_selection
+            self.selection_start = None
             return
 
     # =========================================================================
