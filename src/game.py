@@ -1791,8 +1791,9 @@ class Game:
                     # Translate UIDs from peer's perspective to ours
                     translated_unit_uids = [self._translate_uid_from_peer(uid) for uid in data['units']]
 
-                    # Position is already mirrored by sender - use as-is
+                    # Mirror position for our coordinate system
                     target_pos = data['target']
+                    target_pos = self.network.mirror_pos(target_pos[0], target_pos[1])
 
                     target_unit = None
                     target_building = None
