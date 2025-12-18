@@ -32,6 +32,7 @@ class Game:
     def __init__(self):
         pygame.init()
         pygame.font.init()
+        pygame.mixer.init()
 
         self.screen = pygame.display.set_mode((SCREEN_WIDTH, SCREEN_HEIGHT))
         pygame.display.set_caption("Medieval RTS")
@@ -49,6 +50,9 @@ class Game:
         # Assets
         self.assets = AssetManager(mod_manager=self.mod_manager)
         self.assets.load_all_assets()
+
+        # Sound effects
+        self._load_sounds()
 
         # Camera
         self.camera = Camera(SCREEN_WIDTH, SCREEN_HEIGHT)
@@ -186,6 +190,56 @@ class Game:
         self.minimap = Minimap(SCREEN_WIDTH - 160, 10, 150, MAP_WIDTH, MAP_HEIGHT)
         self.resource_display = ResourceDisplay(SCREEN_WIDTH - 300, SCREEN_HEIGHT - 95)
         self.selection_info = SelectionInfo(520, SCREEN_HEIGHT - 70)
+
+    def _load_sounds(self):
+        """Load all sound effects."""
+        import os
+        sounds_dir = os.path.join(os.path.dirname(os.path.dirname(__file__)), 'sounds')
+
+        self.sounds = {}
+        self.sound_enabled = True
+        self.sound_volume = 0.5
+
+        try:
+            # Death/hurt sounds (multiple variants for variety)
+            self.sounds['death'] = [
+                pygame.mixer.Sound(os.path.join(sounds_dir, 'arrgh-male50_12-43916.mp3')),
+                pygame.mixer.Sound(os.path.join(sounds_dir, 'arrgh-male50_14-43915.mp3')),
+                pygame.mixer.Sound(os.path.join(sounds_dir, 'arrgh-male50_7-98354.mp3')),
+            ]
+
+            # Combat sounds
+            self.sounds['sword'] = pygame.mixer.Sound(os.path.join(sounds_dir, 'sword-sound-260274.mp3'))
+            self.sounds['cannon'] = pygame.mixer.Sound(os.path.join(sounds_dir, 'powerful-cannon-shot-352459.mp3'))
+
+            # Victory/game over sounds
+            self.sounds['victory'] = pygame.mixer.Sound(os.path.join(sounds_dir, 'success-fanfare-trumpets-6185.mp3'))
+            self.sounds['defeat'] = pygame.mixer.Sound(os.path.join(sounds_dir, 'brass-fanfare-reverberated-146263.mp3'))
+
+            # Set initial volume for all sounds
+            for key, sound in self.sounds.items():
+                if isinstance(sound, list):
+                    for s in sound:
+                        s.set_volume(self.sound_volume)
+                else:
+                    sound.set_volume(self.sound_volume)
+
+            print(f"Loaded {len(self.sounds)} sound effects")
+        except Exception as e:
+            print(f"Error loading sounds: {e}")
+            self.sound_enabled = False
+
+    def play_sound(self, sound_name: str):
+        """Play a sound effect."""
+        if not self.sound_enabled or sound_name not in self.sounds:
+            return
+
+        sound = self.sounds[sound_name]
+        if isinstance(sound, list):
+            # Pick a random variant
+            random.choice(sound).play()
+        else:
+            sound.play()
 
     def next_uid(self, for_enemy: bool = False) -> int:
         """Get next unique ID.
@@ -1203,9 +1257,14 @@ class Game:
                 size=5
             )
             self.projectiles.append(projectile)
+            self.play_sound('cannon')
         else:
             killed = defender.take_damage(damage)
             self.blood_effects.append(BloodEffect(defender.x, defender.y, 0.5, 0.5))
+            self.play_sound('sword')
+
+            if killed:
+                self.play_sound('death')
 
             # Sync damage/death in multiplayer (only when our units attack enemy units)
             if self.is_multiplayer and self.network.connected and attacker.team == Team.PLAYER:
@@ -1237,6 +1296,7 @@ class Game:
                 size=5
             )
             self.projectiles.append(projectile)
+            self.play_sound('cannon')
             return  # Don't apply instant damage
 
         destroyed = building.take_damage(damage)
@@ -1445,6 +1505,7 @@ class Game:
                         if killed:
                             # Target killed
                             self.blood_effects.append(BloodEffect(projectile.target_unit.x, projectile.target_unit.y))
+                            self.play_sound('death')
                             if projectile.target_unit in self.units:
                                 self.units.remove(projectile.target_unit)
                                 for u in self.units:
@@ -1573,11 +1634,9 @@ class Game:
         """Handle incoming network messages."""
         messages = self.network.get_messages()
         for msg in messages:
-            print(f"[GAME] Processing message: {msg.get('type', 'unknown')}")
             if msg['type'] == 'action':
                 data = msg['data']
                 command = data.get('command')
-                print(f"[GAME] Processing command: {command}")
 
                 if command == 'move':
                     # Handle unit movement and attacks
@@ -1600,7 +1659,6 @@ class Game:
 
                     for unit in self.units:
                         if unit.uid in translated_unit_uids:
-                            print(f"[GAME] Moving unit {unit.uid}")
                             # Unassign from work if moving
                             if unit.unit_type == UnitType.PEASANT:
                                 if unit.assigned_building:
@@ -1624,7 +1682,6 @@ class Game:
                     unit = next(
                         (u for u in self.units if u.uid == translated_unit_uid), None
                     )
-                    print(f"[GAME] Assign worker: peer uid {data['unit']} -> local uid {translated_unit_uid}, found: {unit is not None}")
                     if unit:
                         if data['building'] is None:
                             unit.unassign_from_building()
@@ -1633,7 +1690,6 @@ class Game:
                             building = next(
                                 (b for b in self.buildings if b.uid == translated_building_uid), None
                             )
-                            print(f"[GAME] Building: peer uid {data['building']} -> local uid {translated_building_uid}, found: {building is not None}")
                             if building:
                                 unit.assign_to_building(building)
 
@@ -1656,7 +1712,6 @@ class Game:
                         unit = Unit(x, y, unit_type, Team.ENEMY, _mod_manager=self.mod_manager)
                         # Translate the UID from peer
                         unit.uid = self._translate_uid_from_peer(data.get('uid', 0))
-                        print(f"[GAME] Trained unit with uid {unit.uid}")
                         self.units.append(unit)
 
                 elif command == 'build':
@@ -1673,7 +1728,6 @@ class Game:
                     building.uid = self._translate_uid_from_peer(data.get('uid', 0))
                     building.completed = False
                     building.build_progress = 0.0
-                    print(f"[GAME] Built building with uid {building.uid}")
                     self.buildings.append(building)
 
                 elif command == 'deconstruct':
@@ -1762,6 +1816,11 @@ class Game:
         )
 
         if not player_castle or not enemy_castle:
+            if self.state != GameState.GAME_OVER:  # Only play sound once
+                if not enemy_castle and player_castle:
+                    self.play_sound('victory')
+                else:
+                    self.play_sound('defeat')
             self.state = GameState.GAME_OVER
 
     # =========================================================================
