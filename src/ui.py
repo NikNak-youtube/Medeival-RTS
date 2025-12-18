@@ -311,11 +311,11 @@ class Minimap:
 class ResourceDisplay:
     """Display for player resources."""
 
-    def __init__(self, x: int, y: int):
+    def __init__(self, x: int, y: int, font_size: int = 24, spacing: int = 25):
         self.x = x
         self.y = y
-        self.font = pygame.font.Font(None, 24)
-        self.spacing = 25
+        self.font = pygame.font.Font(None, font_size)
+        self.spacing = spacing
 
     def draw(self, screen: pygame.Surface, gold: int, food: int, wood: int):
         """Draw resource values."""
@@ -337,10 +337,10 @@ class ResourceDisplay:
 class SelectionInfo:
     """Display info about selected units/buildings."""
 
-    def __init__(self, x: int, y: int):
+    def __init__(self, x: int, y: int, font_size: int = 24):
         self.x = x
         self.y = y
-        self.font = pygame.font.Font(None, 24)
+        self.font = pygame.font.Font(None, font_size)
 
     def draw(self, screen: pygame.Surface, selected_units: list,
             selected_building=None):

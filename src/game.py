@@ -97,10 +97,8 @@ class Game:
         self._uid_counter = 0
         self._enemy_uid_counter = 0
 
-        # Fonts
-        self.font = pygame.font.Font(None, 24)
-        self.large_font = pygame.font.Font(None, 48)
-        self.title_font = pygame.font.Font(None, 72)
+        # Fonts (will be scaled in _create_fonts)
+        self._create_fonts()
 
         # Settings
         self.fullscreen = False
@@ -147,54 +145,89 @@ class Game:
         # Initialize UI
         self._init_ui()
 
+    def _create_fonts(self):
+        """Create fonts scaled to current resolution."""
+        s = constants.get_scale()
+        self.font = pygame.font.Font(None, int(24 * s))
+        self.large_font = pygame.font.Font(None, int(48 * s))
+        self.title_font = pygame.font.Font(None, int(72 * s))
+
     def _init_ui(self):
         """Initialize UI components."""
-        # Main menu buttons
+        self._create_ui_elements()
+
+    def _create_ui_elements(self):
+        """Create all UI elements with current resolution scaling."""
+        w = constants.SCREEN_WIDTH
+        h = constants.SCREEN_HEIGHT
+        s = constants.get_scale()
+
+        # Scaled font size for buttons
+        btn_font = int(32 * s)
+        small_font = int(28 * s)
+
+        # Main menu buttons (centered, positions relative to center)
+        btn_w, btn_h = int(300 * s), int(50 * s)
+        btn_x = w // 2 - btn_w // 2
         self.menu_buttons = [
-            Button(constants.SCREEN_WIDTH // 2 - 150, 220, 300, 50, "Play vs AI"),
-            Button(constants.SCREEN_WIDTH // 2 - 150, 285, 300, 50, "Host Multiplayer"),
-            Button(constants.SCREEN_WIDTH // 2 - 150, 350, 300, 50, "Join Multiplayer"),
-            Button(constants.SCREEN_WIDTH // 2 - 150, 415, 300, 50, "How to Play"),
-            Button(constants.SCREEN_WIDTH // 2 - 150, 480, 300, 50, "Settings"),
-            Button(constants.SCREEN_WIDTH // 2 - 150, 545, 300, 50, "Quit")
+            Button(btn_x, int(220 * s), btn_w, btn_h, "Play vs AI", font_size=btn_font),
+            Button(btn_x, int(285 * s), btn_w, btn_h, "Host Multiplayer", font_size=btn_font),
+            Button(btn_x, int(350 * s), btn_w, btn_h, "Join Multiplayer", font_size=btn_font),
+            Button(btn_x, int(415 * s), btn_w, btn_h, "How to Play", font_size=btn_font),
+            Button(btn_x, int(480 * s), btn_w, btn_h, "Settings", font_size=btn_font),
+            Button(btn_x, int(545 * s), btn_w, btn_h, "Quit", font_size=btn_font)
         ]
 
         # How to Play back button
-        self.how_to_play_back_button = Button(constants.SCREEN_WIDTH // 2 - 75, constants.SCREEN_HEIGHT - 60, 150, 40, "Back")
+        back_w, back_h = int(150 * s), int(40 * s)
+        self.how_to_play_back_button = Button(w // 2 - back_w // 2, h - int(60 * s), back_w, back_h, "Back", font_size=btn_font)
 
         # Difficulty selection buttons (spaced for descriptions)
+        diff_w, diff_h = int(300 * s), int(45 * s)
+        diff_x = w // 2 - diff_w // 2
         self.difficulty_buttons = [
-            Button(constants.SCREEN_WIDTH // 2 - 150, 200, 300, 45, "Easy"),
-            Button(constants.SCREEN_WIDTH // 2 - 150, 290, 300, 45, "Normal"),
-            Button(constants.SCREEN_WIDTH // 2 - 150, 380, 300, 45, "Hard"),
-            Button(constants.SCREEN_WIDTH // 2 - 150, 470, 300, 45, "Brutal"),
+            Button(diff_x, int(200 * s), diff_w, diff_h, "Easy", font_size=btn_font),
+            Button(diff_x, int(290 * s), diff_w, diff_h, "Normal", font_size=btn_font),
+            Button(diff_x, int(380 * s), diff_w, diff_h, "Hard", font_size=btn_font),
+            Button(diff_x, int(470 * s), diff_w, diff_h, "Brutal", font_size=btn_font),
         ]
-        self.difficulty_back_button = Button(constants.SCREEN_WIDTH // 2 - 150, 560, 300, 45, "Back")
+        self.difficulty_back_button = Button(diff_x, int(560 * s), diff_w, diff_h, "Back", font_size=btn_font)
 
         # Settings buttons
-        self.resolution_button = Button(constants.SCREEN_WIDTH // 2 - 150, 220, 300, 45, f"Resolution: {constants.SCREEN_WIDTH}x{constants.SCREEN_HEIGHT}")
-        self.fullscreen_button = Button(constants.SCREEN_WIDTH // 2 - 150, 275, 300, 45, "Fullscreen: Off")
-        self.vsync_button = Button(constants.SCREEN_WIDTH // 2 - 150, 330, 300, 45, "VSync: Off")
-        self.sound_button = Button(constants.SCREEN_WIDTH // 2 - 150, 385, 300, 45, "Sound: On")
-        self.grid_snap_button = Button(constants.SCREEN_WIDTH // 2 - 150, 440, 300, 45, "Grid Snap: Off")
-        self.keybinds_button = Button(constants.SCREEN_WIDTH // 2 - 150, 495, 300, 45, "Keybinds")
-        self.settings_back_button = Button(constants.SCREEN_WIDTH // 2 - 150, 550, 300, 45, "Back")
+        set_w, set_h = int(300 * s), int(45 * s)
+        set_x = w // 2 - set_w // 2
+        self.resolution_button = Button(set_x, int(220 * s), set_w, set_h, f"Resolution: {w}x{h}", font_size=btn_font)
+        self.fullscreen_button = Button(set_x, int(275 * s), set_w, set_h, "Fullscreen: Off", font_size=btn_font)
+        self.vsync_button = Button(set_x, int(330 * s), set_w, set_h, "VSync: Off", font_size=btn_font)
+        self.sound_button = Button(set_x, int(385 * s), set_w, set_h, "Sound: On", font_size=btn_font)
+        self.grid_snap_button = Button(set_x, int(440 * s), set_w, set_h, "Grid Snap: Off", font_size=btn_font)
+        self.keybinds_button = Button(set_x, int(495 * s), set_w, set_h, "Keybinds", font_size=btn_font)
+        self.settings_back_button = Button(set_x, int(550 * s), set_w, set_h, "Back", font_size=btn_font)
 
         # Keybinds menu buttons
-        self.keybinds_back_button = Button(constants.SCREEN_WIDTH // 2 - 75, constants.SCREEN_HEIGHT - 60, 150, 40, "Back")
-        self.keybinds_reset_button = Button(constants.SCREEN_WIDTH // 2 - 225, constants.SCREEN_HEIGHT - 60, 140, 40, "Reset All")
+        kb_back_w = int(150 * s)
+        kb_reset_w = int(140 * s)
+        kb_h = int(40 * s)
+        self.keybinds_back_button = Button(w // 2 - kb_back_w // 2, h - int(60 * s), kb_back_w, kb_h, "Back", font_size=btn_font)
+        self.keybinds_reset_button = Button(w // 2 - kb_back_w // 2 - kb_reset_w - int(10 * s), h - int(60 * s), kb_reset_w, kb_h, "Reset All", font_size=small_font)
 
         # Multiplayer UI
-        self.ip_input = TextInput(constants.SCREEN_WIDTH // 2 - 150, 350, 300, 40, "Enter IP address")
-        self.connect_button = Button(constants.SCREEN_WIDTH // 2 - 75, 410, 150, 40, "Connect")
-        self.back_button = Button(constants.SCREEN_WIDTH // 2 - 75, 470, 150, 40, "Back")
-        self.accept_button = Button(constants.SCREEN_WIDTH // 2 - 160, 400, 150, 40, "Accept")
-        self.decline_button = Button(constants.SCREEN_WIDTH // 2 + 10, 400, 150, 40, "Decline")
+        mp_w, mp_h = int(300 * s), int(40 * s)
+        mp_x = w // 2 - mp_w // 2
+        self.ip_input = TextInput(mp_x, int(350 * s), mp_w, mp_h, "Enter IP address", font_size=small_font)
+        conn_w = int(150 * s)
+        self.connect_button = Button(w // 2 - conn_w // 2, int(410 * s), conn_w, mp_h, "Connect", font_size=btn_font)
+        self.back_button = Button(w // 2 - conn_w // 2, int(470 * s), conn_w, mp_h, "Back", font_size=btn_font)
+        acc_w = int(150 * s)
+        self.accept_button = Button(w // 2 - acc_w - int(10 * s), int(400 * s), acc_w, mp_h, "Accept", font_size=btn_font)
+        self.decline_button = Button(w // 2 + int(10 * s), int(400 * s), acc_w, mp_h, "Decline", font_size=btn_font)
 
         # HUD components
-        self.minimap = Minimap(constants.SCREEN_WIDTH - 160, 10, 150, MAP_WIDTH, MAP_HEIGHT)
-        self.resource_display = ResourceDisplay(constants.SCREEN_WIDTH - 300, constants.SCREEN_HEIGHT - 95)
-        self.selection_info = SelectionInfo(520, constants.SCREEN_HEIGHT - 70)
+        minimap_size = int(150 * s)
+        hud_font = int(24 * s)
+        self.minimap = Minimap(w - minimap_size - int(10 * s), int(10 * s), minimap_size, MAP_WIDTH, MAP_HEIGHT)
+        self.resource_display = ResourceDisplay(w - int(300 * s), h - int(95 * s), font_size=hud_font, spacing=int(25 * s))
+        self.selection_info = SelectionInfo(int(520 * s), h - int(70 * s), font_size=hud_font)
 
     def _load_sounds(self):
         """Load all sound effects."""
@@ -573,59 +606,17 @@ class Game:
 
     def _recreate_ui(self):
         """Recreate UI elements after resolution change."""
-        w = constants.SCREEN_WIDTH
-        h = constants.SCREEN_HEIGHT
+        # Recreate fonts with new scaling
+        self._create_fonts()
 
-        # Main menu buttons
-        self.play_button = Button(w // 2 - 150, 280, 300, 50, "Play vs AI")
-        self.multiplayer_button = Button(w // 2 - 150, 350, 300, 50, "Multiplayer")
-        self.how_to_play_button = Button(w // 2 - 150, 420, 300, 50, "How to Play")
-        self.settings_button = Button(w // 2 - 150, 490, 300, 50, "Settings")
-        self.quit_button = Button(w // 2 - 150, 560, 300, 50, "Quit")
+        # Recreate all UI elements with new scaling
+        self._create_ui_elements()
 
-        # Multiplayer menu buttons
-        self.host_button = Button(w // 2 - 150, 300, 300, 50, "Host Game")
-        self.join_button = Button(w // 2 - 150, 370, 300, 50, "Join Game")
-        self.lobby_back_button = Button(w // 2 - 150, 440, 300, 50, "Back")
-
-        # Difficulty buttons
-        self.difficulty_buttons = [
-            Button(w // 2 - 150, 290, 300, 45, "Easy"),
-            Button(w // 2 - 150, 350, 300, 45, "Normal"),
-            Button(w // 2 - 150, 410, 300, 45, "Hard"),
-            Button(w // 2 - 150, 470, 300, 45, "Brutal"),
-        ]
-        self.difficulty_back_button = Button(w // 2 - 150, 560, 300, 45, "Back")
-
-        # Settings buttons
-        res_text = f"Resolution: {w}x{h}"
-        self.resolution_button = Button(w // 2 - 150, 220, 300, 45, res_text)
-        self.fullscreen_button = Button(w // 2 - 150, 275, 300, 45,
-                                        "Fullscreen: On" if self.fullscreen else "Fullscreen: Off")
-        self.vsync_button = Button(w // 2 - 150, 330, 300, 45,
-                                   "VSync: On" if self.vsync else "VSync: Off")
-        self.sound_button = Button(w // 2 - 150, 385, 300, 45,
-                                   "Sound: On" if self.sound_enabled else "Sound: Off")
-        self.grid_snap_button = Button(w // 2 - 150, 440, 300, 45,
-                                       "Grid Snap: On" if self.grid_snap else "Grid Snap: Off")
-        self.keybinds_button = Button(w // 2 - 150, 495, 300, 45, "Keybinds")
-        self.settings_back_button = Button(w // 2 - 150, 550, 300, 45, "Back")
-
-        # Keybinds menu buttons
-        self.keybinds_back_button = Button(w // 2 - 75, h - 60, 150, 40, "Back")
-        self.keybinds_reset_button = Button(w // 2 - 225, h - 60, 140, 40, "Reset All")
-
-        # Multiplayer UI
-        self.ip_input = TextInput(w // 2 - 150, 350, 300, 40, "Enter IP address")
-        self.connect_button = Button(w // 2 - 75, 410, 150, 40, "Connect")
-        self.back_button = Button(w // 2 - 75, 470, 150, 40, "Back")
-        self.accept_button = Button(w // 2 - 160, 400, 150, 40, "Accept")
-        self.decline_button = Button(w // 2 + 10, 400, 150, 40, "Decline")
-
-        # HUD components
-        self.minimap = Minimap(w - 160, 10, 150, MAP_WIDTH, MAP_HEIGHT)
-        self.resource_display = ResourceDisplay(w - 300, h - 95)
-        self.selection_info = SelectionInfo(520, h - 70)
+        # Update button text to reflect current settings state
+        self.fullscreen_button.text = "Fullscreen: On" if self.fullscreen else "Fullscreen: Off"
+        self.vsync_button.text = "VSync: On" if self.vsync else "VSync: Off"
+        self.sound_button.text = "Sound: On" if self.sound_enabled else "Sound: Off"
+        self.grid_snap_button.text = "Grid Snap: On" if self.grid_snap else "Grid Snap: Off"
 
     def _get_key_name(self, key_code: int) -> str:
         """Get a human-readable name for a key code."""
