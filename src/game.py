@@ -317,9 +317,9 @@ class Game:
         # Create enemy starting units (both AI and multiplayer need these)
         self._create_enemy_starting_units()
 
-        # Position camera at player start
+        # Position camera at player start (use camera viewport, not screen size)
         self.camera.x = 0
-        self.camera.y = MAP_HEIGHT - constants.SCREEN_HEIGHT
+        self.camera.y = MAP_HEIGHT - self.camera.height
 
         self.state = GameState.PLAYING
 
@@ -2246,23 +2246,38 @@ class Game:
     def _draw_terrain(self):
         """Draw terrain tiles."""
         grass = self.assets.get('terrain_grass')
+        scale = self.camera.scale
+
+        # Scale tile if needed
+        if scale != 1.0:
+            scaled_size = int(TILE_SIZE * scale)
+            grass = pygame.transform.scale(grass, (scaled_size, scaled_size))
+        else:
+            scaled_size = TILE_SIZE
 
         start_x = int(self.camera.x // TILE_SIZE) * TILE_SIZE
         start_y = int(self.camera.y // TILE_SIZE) * TILE_SIZE
 
-        for y in range(start_y, int(start_y + constants.SCREEN_HEIGHT + TILE_SIZE * 2), TILE_SIZE):
-            for x in range(start_x, int(start_x + constants.SCREEN_WIDTH + TILE_SIZE * 2), TILE_SIZE):
+        # Use the viewport size (in world units) for iteration
+        for y in range(start_y, int(start_y + self.camera.height + TILE_SIZE * 2), TILE_SIZE):
+            for x in range(start_x, int(start_x + self.camera.width + TILE_SIZE * 2), TILE_SIZE):
                 screen_pos = self.camera.world_to_screen(x, y)
                 self.screen.blit(grass, screen_pos)
 
     def _draw_units(self):
         """Draw all units."""
+        scale = self.camera.scale
         for unit in self.units:
             screen_pos = self.camera.world_to_screen(unit.x, unit.y)
 
-            # Get sprite
+            # Get sprite and scale it
             asset_name = get_unit_asset_name(unit.unit_type)
             sprite = self.assets.get(asset_name)
+
+            # Scale sprite if needed
+            if scale != 1.0:
+                new_size = (int(sprite.get_width() * scale), int(sprite.get_height() * scale))
+                sprite = pygame.transform.scale(sprite, new_size)
 
             # Tint enemy units
             if unit.team == Team.ENEMY:
@@ -2274,38 +2289,49 @@ class Game:
 
             # Selection indicator
             if unit.selected:
-                pygame.draw.circle(self.screen, GREEN, screen_pos, 30, 2)
+                pygame.draw.circle(self.screen, GREEN, screen_pos, int(30 * scale), 2)
 
             # Working indicator for peasants
             if unit.unit_type == UnitType.PEASANT and unit.is_working:
                 # Draw a small pickaxe/work icon (yellow circle)
+                offset = int(15 * scale)
+                radius = int(6 * scale)
                 pygame.draw.circle(self.screen, YELLOW,
-                                 (screen_pos[0] + 15, screen_pos[1] - 15), 6)
+                                 (screen_pos[0] + offset, screen_pos[1] - offset), radius)
                 pygame.draw.circle(self.screen, BLACK,
-                                 (screen_pos[0] + 15, screen_pos[1] - 15), 6, 1)
+                                 (screen_pos[0] + offset, screen_pos[1] - offset), radius, 1)
 
             # Construction indicator for peasants
             if unit.unit_type == UnitType.PEASANT and unit.constructing_building:
                 # Draw hammer icon (brown circle with outline)
+                offset = int(15 * scale)
+                radius = int(6 * scale)
                 pygame.draw.circle(self.screen, BROWN,
-                                 (screen_pos[0] + 15, screen_pos[1] - 15), 6)
+                                 (screen_pos[0] + offset, screen_pos[1] - offset), radius)
                 pygame.draw.circle(self.screen, BLACK,
-                                 (screen_pos[0] + 15, screen_pos[1] - 15), 6, 1)
+                                 (screen_pos[0] + offset, screen_pos[1] - offset), radius, 1)
 
             # Attack-move indicator
             if unit.attack_move_target:
-                pygame.draw.circle(self.screen, RED, screen_pos, 25, 2)
+                pygame.draw.circle(self.screen, RED, screen_pos, int(25 * scale), 2)
 
             # Health bar
-            draw_health_bar(self.screen, screen_pos, unit.health, unit.max_health, 40)
+            draw_health_bar(self.screen, screen_pos, unit.health, unit.max_health,
+                          int(40 * scale), int(6 * scale), int(-25 * scale))
 
     def _draw_buildings(self):
         """Draw all buildings."""
+        scale = self.camera.scale
         for building in self.buildings:
             screen_pos = self.camera.world_to_screen(building.x, building.y)
 
             asset_name = get_building_asset_name(building.building_type)
             sprite = self.assets.get(asset_name).copy()
+
+            # Scale sprite if needed
+            if scale != 1.0:
+                new_size = (int(sprite.get_width() * scale), int(sprite.get_height() * scale))
+                sprite = pygame.transform.scale(sprite, new_size)
 
             # Make incomplete buildings semi-transparent
             if not building.completed:
@@ -2318,15 +2344,15 @@ class Game:
             self.screen.blit(sprite, rect)
 
             if building.selected:
-                pygame.draw.rect(self.screen, GREEN, rect.inflate(10, 10), 3)
+                pygame.draw.rect(self.screen, GREEN, rect.inflate(int(10 * scale), int(10 * scale)), 3)
 
             # Draw construction progress for incomplete buildings
             if not building.completed and building.team == Team.PLAYER:
                 # Progress bar
                 bar_width = rect.width
-                bar_height = 8
+                bar_height = int(8 * scale)
                 bar_x = screen_pos[0] - bar_width // 2
-                bar_y = screen_pos[1] + rect.height // 2 + 5
+                bar_y = screen_pos[1] + rect.height // 2 + int(5 * scale)
                 # Background
                 pygame.draw.rect(self.screen, DARK_GRAY, (bar_x, bar_y, bar_width, bar_height))
                 # Progress fill
@@ -2337,7 +2363,7 @@ class Game:
                 # Text
                 progress_text = f"{int(building.build_progress)}%"
                 text_surf = self.font.render(progress_text, True, WHITE)
-                text_rect = text_surf.get_rect(center=(screen_pos[0], bar_y + bar_height + 10))
+                text_rect = text_surf.get_rect(center=(screen_pos[0], bar_y + bar_height + int(10 * scale)))
                 self.screen.blit(text_surf, text_rect)
             # Draw worker count for completed player buildings
             elif building.team == Team.PLAYER and building.completed:
@@ -2348,7 +2374,7 @@ class Game:
                     worker_text = f"{workers}/{max_workers}"
                     color = GREEN if workers > 0 else RED
                     text_surf = self.font.render(worker_text, True, color)
-                    text_rect = text_surf.get_rect(center=(screen_pos[0], screen_pos[1] + rect.height // 2 + 12))
+                    text_rect = text_surf.get_rect(center=(screen_pos[0], screen_pos[1] + rect.height // 2 + int(12 * scale)))
                     # Background for readability
                     bg_rect = text_rect.inflate(4, 2)
                     pygame.draw.rect(self.screen, BLACK, bg_rect)
@@ -2356,30 +2382,39 @@ class Game:
 
             draw_health_bar(
                 self.screen,
-                (screen_pos[0], screen_pos[1] - rect.height // 2 - 10),
+                (screen_pos[0], screen_pos[1] - rect.height // 2 - int(10 * scale)),
                 building.health, building.max_health, rect.width
             )
 
     def _draw_effects(self):
         """Draw visual effects."""
+        scale = self.camera.scale
         for effect in self.blood_effects:
             screen_pos = self.camera.world_to_screen(effect.x, effect.y)
             blood = self.assets.get('effect_blood').copy()
+
+            # Scale if needed
+            if scale != 1.0:
+                new_size = (int(blood.get_width() * scale), int(blood.get_height() * scale))
+                blood = pygame.transform.scale(blood, new_size)
+
             blood.set_alpha(effect.get_alpha())
             rect = blood.get_rect(center=screen_pos)
             self.screen.blit(blood, rect)
 
     def _draw_projectiles(self):
         """Draw all projectiles as small black dots."""
+        scale = self.camera.scale
         for projectile in self.projectiles:
             screen_pos = self.camera.world_to_screen(projectile.x, projectile.y)
-            pygame.draw.circle(self.screen, BLACK, screen_pos, projectile.size)
+            pygame.draw.circle(self.screen, BLACK, screen_pos, int(projectile.size * scale))
 
     def _draw_movement_lines(self):
         """Draw 80% transparent white lines showing where selected units are moving."""
         if not self.selected_units:
             return
 
+        scale = self.camera.scale
         # Create a single surface for all movement lines (more efficient)
         line_surface = pygame.Surface((constants.SCREEN_WIDTH, constants.SCREEN_HEIGHT), pygame.SRCALPHA)
         line_color = (255, 255, 255, 51)  # 80% transparent white (alpha = 51)
@@ -2406,11 +2441,11 @@ class Game:
                 start_pos = self.camera.world_to_screen(unit.x, unit.y)
                 end_pos = self.camera.world_to_screen(target_x, target_y)
 
-                # Draw line from unit to destination
-                pygame.draw.line(line_surface, line_color, start_pos, end_pos, 2)
+                # Draw line from unit to destination (scale line width)
+                pygame.draw.line(line_surface, line_color, start_pos, end_pos, max(1, int(2 * scale)))
 
-                # Draw a small circle at the destination
-                pygame.draw.circle(line_surface, line_color, end_pos, 8, 2)
+                # Draw a small circle at the destination (scale radius)
+                pygame.draw.circle(line_surface, line_color, end_pos, int(8 * scale), max(1, int(2 * scale)))
 
         # Blit the line surface once
         self.screen.blit(line_surface, (0, 0))
@@ -2425,6 +2460,7 @@ class Game:
         if not self.placing_building:
             return
 
+        scale = self.camera.scale
         mouse_pos = pygame.mouse.get_pos()
         world_pos = self.camera.screen_to_world(*mouse_pos)
 
@@ -2437,6 +2473,12 @@ class Game:
 
         asset_name = get_building_asset_name(self.placing_building)
         sprite = self.assets.get(asset_name).copy()
+
+        # Scale sprite if needed
+        if scale != 1.0:
+            new_size = (int(sprite.get_width() * scale), int(sprite.get_height() * scale))
+            sprite = pygame.transform.scale(sprite, new_size)
+
         sprite.set_alpha(160)
 
         # Tint based on validity
@@ -2452,21 +2494,20 @@ class Game:
 
         # Draw outline
         outline_color = GREEN if can_place else RED
-        pygame.draw.rect(self.screen, outline_color, rect.inflate(4, 4), 2)
+        pygame.draw.rect(self.screen, outline_color, rect.inflate(int(4 * scale), int(4 * scale)), max(2, int(2 * scale)))
 
         # Draw grid lines if grid snap is enabled
         if self.grid_snap:
             # Draw nearby grid lines faintly
-            grid_color = (100, 100, 100, 100)
             cam_x, cam_y = int(self.camera.x), int(self.camera.y)
             # Calculate visible grid area
             start_grid_x = (cam_x // self.grid_size) * self.grid_size
             start_grid_y = (cam_y // self.grid_size) * self.grid_size
             # Draw only a few grid lines around the mouse position for clarity
-            for gx in range(int(start_grid_x), int(start_grid_x + constants.SCREEN_WIDTH + self.grid_size * 2), self.grid_size):
+            for gx in range(int(start_grid_x), int(start_grid_x + self.camera.width + self.grid_size * 2), self.grid_size):
                 sx, _ = self.camera.world_to_screen(gx, 0)
                 pygame.draw.line(self.screen, DARK_GRAY, (sx, 0), (sx, constants.SCREEN_HEIGHT - 100), 1)
-            for gy in range(int(start_grid_y), int(start_grid_y + constants.SCREEN_HEIGHT + self.grid_size * 2), self.grid_size):
+            for gy in range(int(start_grid_y), int(start_grid_y + self.camera.height + self.grid_size * 2), self.grid_size):
                 _, sy = self.camera.world_to_screen(0, gy)
                 pygame.draw.line(self.screen, DARK_GRAY, (0, sy), (constants.SCREEN_WIDTH, sy), 1)
 

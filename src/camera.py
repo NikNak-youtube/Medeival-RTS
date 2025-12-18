@@ -5,7 +5,7 @@ Camera and viewport handling.
 import pygame
 from typing import Tuple
 
-from .constants import MAP_WIDTH, MAP_HEIGHT
+from .constants import MAP_WIDTH, MAP_HEIGHT, BASE_WIDTH, BASE_HEIGHT
 
 
 class Camera:
@@ -21,11 +21,20 @@ class Camera:
         """
         self.x = 0.0
         self.y = 0.0
-        self.width = width
-        self.height = height
+        self.screen_width = width
+        self.screen_height = height
+        # Virtual viewport size (what the camera "sees" in world units)
+        # This stays constant regardless of screen resolution
+        self.width = BASE_WIDTH
+        self.height = BASE_HEIGHT
         self.speed = 10.0
         self.edge_scroll_margin = 20
         self.edge_scroll_enabled = True
+
+    @property
+    def scale(self) -> float:
+        """Get the scale factor from world to screen coordinates."""
+        return self.screen_width / self.width
 
     def update(self, keys, dt: float, mouse_pos: Tuple[int, int] = None):
         """
@@ -48,16 +57,16 @@ class Camera:
         if keys[pygame.K_DOWN] or keys[pygame.K_s]:
             self.y += move_speed
 
-        # Edge scrolling
+        # Edge scrolling (use screen dimensions for edge detection)
         if self.edge_scroll_enabled and mouse_pos:
             mouse_x, mouse_y = mouse_pos
             if mouse_x < self.edge_scroll_margin:
                 self.x -= move_speed
-            elif mouse_x > self.width - self.edge_scroll_margin:
+            elif mouse_x > self.screen_width - self.edge_scroll_margin:
                 self.x += move_speed
             if mouse_y < self.edge_scroll_margin:
                 self.y -= move_speed
-            elif mouse_y > self.height - self.edge_scroll_margin:
+            elif mouse_y > self.screen_height - self.edge_scroll_margin:
                 self.y += move_speed
 
         # Clamp to map bounds
@@ -79,7 +88,8 @@ class Camera:
         Returns:
             Tuple of (screen_x, screen_y)
         """
-        return (int(world_x - self.x), int(world_y - self.y))
+        s = self.scale
+        return (int((world_x - self.x) * s), int((world_y - self.y) * s))
 
     def screen_to_world(self, screen_x: int, screen_y: int) -> Tuple[float, float]:
         """
@@ -92,7 +102,12 @@ class Camera:
         Returns:
             Tuple of (world_x, world_y)
         """
-        return (screen_x + self.x, screen_y + self.y)
+        s = self.scale
+        return (screen_x / s + self.x, screen_y / s + self.y)
+
+    def scale_size(self, size: float) -> int:
+        """Scale a world-space size to screen-space size."""
+        return int(size * self.scale)
 
     def is_rect_visible(self, rect: pygame.Rect) -> bool:
         """
@@ -104,8 +119,8 @@ class Camera:
         Returns:
             True if any part of rect is visible
         """
-        screen_rect = pygame.Rect(self.x, self.y, self.width, self.height)
-        return screen_rect.colliderect(rect)
+        viewport_rect = pygame.Rect(self.x, self.y, self.width, self.height)
+        return viewport_rect.colliderect(rect)
 
     def is_point_visible(self, x: float, y: float, margin: int = 50) -> bool:
         """
