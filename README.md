@@ -272,10 +272,6 @@ The game uses these image assets from the `images/` folder:
 | Cannon | medieval-cannon-3d-*.png | Cannon unit |
 | Blood | Blood-Splatter-*.png | Combat effects |
 
-## License
-
-This project is provided as-is for educational purposes.
-
 ## Troubleshooting
 
 ### "No module named 'pygame'"
