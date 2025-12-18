@@ -345,6 +345,7 @@ class Game:
         # Host: player bottom-left, enemy top-right
         # Client: player top-right, enemy bottom-left
         is_client = self.is_multiplayer and not self.network.is_host
+        print(f"DEBUG init_game: is_multiplayer={self.is_multiplayer}, is_host={self.network.is_host}, is_client={is_client}")
 
         # Create player base
         self._create_player_base(mirrored=is_client)

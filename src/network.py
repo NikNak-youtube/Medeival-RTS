@@ -247,18 +247,17 @@ class NetworkManager:
     def mirror_pos(self, x: float, y: float) -> Tuple[float, float]:
         """Mirror a position for multiplayer coordination.
 
-        In multiplayer, the client sees the map mirrored compared to the host.
-        This translates positions between the two coordinate systems.
+        In multiplayer, both players see themselves in different corners.
+        When sending positions to peer, we always mirror so it appears
+        in the correct location on their screen.
         """
-        if self.is_host:
-            # Host doesn't need to mirror
-            return (x, y)
-        # Client mirrors: (x, y) -> (MAP_WIDTH - x, MAP_HEIGHT - y)
+        # Always mirror when sending/receiving in multiplayer
+        # This converts from one player's coordinate system to the other's
         return (MAP_WIDTH - x, MAP_HEIGHT - y)
 
     def should_mirror(self) -> bool:
-        """Check if positions should be mirrored (client only)."""
-        return self.connected and not self.is_host
+        """Check if positions should be mirrored for network communication."""
+        return self.connected
 
     # =========================================================================
     # GAME STATE SYNC
