@@ -951,6 +951,12 @@ class Game:
             self.network.close()
             return
 
+        # Select Military button (in selection info area)
+        sel_btn_x = constants.SCREEN_WIDTH - 170
+        if pygame.Rect(sel_btn_x, content_y, 80, small_btn).collidepoint(mouse_pos):
+            self._select_all_military()
+            return
+
     # =========================================================================
     # SELECTION
     # =========================================================================
@@ -1001,6 +1007,24 @@ class Game:
                 if unit.team == Team.PLAYER and selection_area.colliderect(unit.get_rect()):
                     unit.selected = True
                     self.selected_units.append(unit)
+
+    def _select_all_military(self):
+        """Select all military units (knights, cavalry, cannons - not peasants)."""
+        # Deselect current selection
+        for unit in self.selected_units:
+            unit.selected = False
+        self.selected_units.clear()
+
+        if self.selected_building:
+            self.selected_building.selected = False
+            self.selected_building = None
+
+        # Select all military units (non-peasants)
+        military_types = {UnitType.KNIGHT, UnitType.CAVALRY, UnitType.CANNON}
+        for unit in self.units:
+            if unit.team == Team.PLAYER and unit.unit_type in military_types:
+                unit.selected = True
+                self.selected_units.append(unit)
 
     def _issue_command(self, world_pos: Tuple[float, float]):
         """Issue move/attack command to selected units."""
@@ -2759,6 +2783,17 @@ class Game:
         if self.attack_move_mode:
             hint = self.font.render("ATTACK-MOVE: Right-click", True, RED)
             self.screen.blit(hint, (info_x, info_y + 72))
+
+        # Select Military button (far right of selection area)
+        sel_btn_x = constants.SCREEN_WIDTH - 170
+        sel_btn_y = constants.SCREEN_HEIGHT - 100 + 25 + 5  # content_y
+        sel_btn_rect = pygame.Rect(sel_btn_x, sel_btn_y, 80, 45)
+        pygame.draw.rect(self.screen, GRAY, sel_btn_rect)
+        pygame.draw.rect(self.screen, BLACK, sel_btn_rect, 2)
+        mil_text = self.font.render("SELECT", True, WHITE)
+        mil_text2 = self.font.render("MILITARY", True, WHITE)
+        self.screen.blit(mil_text, (sel_btn_x + 12, sel_btn_y + 6))
+        self.screen.blit(mil_text2, (sel_btn_x + 6, sel_btn_y + 24))
 
     def _draw_minimap(self):
         """Draw minimap."""
