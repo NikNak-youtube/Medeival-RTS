@@ -8,7 +8,7 @@ import json
 import struct
 from typing import Optional, Tuple, List, TYPE_CHECKING
 
-from .constants import DEFAULT_PORT, BUFFER_SIZE
+from .constants import DEFAULT_PORT, BUFFER_SIZE, MAP_WIDTH, MAP_HEIGHT
 
 if TYPE_CHECKING:
     from .game import Game
@@ -241,6 +241,26 @@ class NetworkManager:
         return messages
 
     # =========================================================================
+    # POSITION MIRRORING (for client)
+    # =========================================================================
+
+    def mirror_pos(self, x: float, y: float) -> Tuple[float, float]:
+        """Mirror a position for multiplayer coordination.
+
+        In multiplayer, the client sees the map mirrored compared to the host.
+        This translates positions between the two coordinate systems.
+        """
+        if self.is_host:
+            # Host doesn't need to mirror
+            return (x, y)
+        # Client mirrors: (x, y) -> (MAP_WIDTH - x, MAP_HEIGHT - y)
+        return (MAP_WIDTH - x, MAP_HEIGHT - y)
+
+    def should_mirror(self) -> bool:
+        """Check if positions should be mirrored (client only)."""
+        return self.connected and not self.is_host
+
+    # =========================================================================
     # GAME STATE SYNC
     # =========================================================================
 
@@ -272,10 +292,12 @@ class NetworkManager:
                          target_unit_uid: Optional[int] = None,
                          target_building_uid: Optional[int] = None):
         """Send a unit command to peer."""
+        # Mirror position for peer's coordinate system
+        mirrored_pos = self.mirror_pos(target_pos[0], target_pos[1])
         self.send_action({
             'command': 'move',
             'units': unit_uids,
-            'target': target_pos,
+            'target': mirrored_pos,
             'target_unit': target_unit_uid,
             'target_building': target_building_uid
         })
@@ -289,11 +311,13 @@ class NetworkManager:
 
     def send_build_building(self, building_type: str, x: float, y: float):
         """Send building placement command."""
+        # Mirror position for peer's coordinate system
+        mirrored_x, mirrored_y = self.mirror_pos(x, y)
         self.send_action({
             'command': 'build',
             'building_type': building_type,
-            'x': x,
-            'y': y
+            'x': mirrored_x,
+            'y': mirrored_y
         })
 
     def send_assign_worker(self, unit_uid: int, building_uid: Optional[int]):

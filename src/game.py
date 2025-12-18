@@ -333,12 +333,6 @@ class Game:
         self._uid_counter = 0
         self._enemy_uid_counter = 0
 
-        # Create player base
-        self._create_player_base()
-
-        # Create enemy base
-        self._create_enemy_base()
-
         # Setup AI or multiplayer
         if vs_ai:
             self.ai_bot = AIBot(self, self.selected_difficulty)
@@ -347,52 +341,112 @@ class Game:
             self.ai_bot = None
             self.is_multiplayer = True
 
+        # In multiplayer, the client (non-host) has mirrored positions
+        # Host: player bottom-left, enemy top-right
+        # Client: player top-right, enemy bottom-left
+        is_client = self.is_multiplayer and not self.network.is_host
+
+        # Create player base
+        self._create_player_base(mirrored=is_client)
+
+        # Create enemy base
+        self._create_enemy_base(mirrored=is_client)
+
         # Create enemy starting units (both AI and multiplayer need these)
-        self._create_enemy_starting_units()
+        self._create_enemy_starting_units(mirrored=is_client)
 
         # Position camera at player start (use camera viewport, not screen size)
-        self.camera.x = 0
-        self.camera.y = MAP_HEIGHT - self.camera.height
+        if is_client:
+            # Client starts viewing top-right corner
+            self.camera.x = MAP_WIDTH - self.camera.width
+            self.camera.y = 0
+        else:
+            # Host/AI starts viewing bottom-left corner
+            self.camera.x = 0
+            self.camera.y = MAP_HEIGHT - self.camera.height
 
         self.state = GameState.PLAYING
 
-    def _create_player_base(self):
-        """Create player starting base."""
+    def _create_player_base(self, mirrored: bool = False):
+        """Create player starting base.
+
+        Args:
+            mirrored: If True, place in top-right instead of bottom-left (for multiplayer client)
+        """
+        if mirrored:
+            # Top-right corner (client's player position = host's enemy position)
+            castle_x, castle_y = MAP_WIDTH - 300, 300
+            peasant_base_x, peasant_y = MAP_WIDTH - 350, 250
+            peasant_offset = -40  # Move left for each peasant
+            knight_x, knight_y = MAP_WIDTH - 300, 200
+        else:
+            # Bottom-left corner (host's player position)
+            castle_x, castle_y = 300, MAP_HEIGHT - 300
+            peasant_base_x, peasant_y = 350, MAP_HEIGHT - 250
+            peasant_offset = 40  # Move right for each peasant
+            knight_x, knight_y = 300, MAP_HEIGHT - 200
+
         # Castle
-        castle = Building(300, MAP_HEIGHT - 300, BuildingType.CASTLE, Team.PLAYER,
+        castle = Building(castle_x, castle_y, BuildingType.CASTLE, Team.PLAYER,
                          _mod_manager=self.mod_manager)
         castle.uid = self.next_uid()
         self.buildings.append(castle)
 
         # Starting peasants
         for i in range(3):
-            peasant = Unit(350 + i * 40, MAP_HEIGHT - 250, UnitType.PEASANT, Team.PLAYER,
+            peasant = Unit(peasant_base_x + i * peasant_offset, peasant_y, UnitType.PEASANT, Team.PLAYER,
                           _mod_manager=self.mod_manager)
             peasant.uid = self.next_uid()
             self.units.append(peasant)
 
         # Starting knight
-        knight = Unit(300, MAP_HEIGHT - 200, UnitType.KNIGHT, Team.PLAYER,
+        knight = Unit(knight_x, knight_y, UnitType.KNIGHT, Team.PLAYER,
                      _mod_manager=self.mod_manager)
         knight.uid = self.next_uid()
         self.units.append(knight)
 
-    def _create_enemy_base(self):
-        """Create enemy starting base."""
-        castle = Building(MAP_WIDTH - 300, 300, BuildingType.CASTLE, Team.ENEMY,
+    def _create_enemy_base(self, mirrored: bool = False):
+        """Create enemy starting base.
+
+        Args:
+            mirrored: If True, place in bottom-left instead of top-right (for multiplayer client)
+        """
+        if mirrored:
+            # Bottom-left corner (client's enemy position = host's player position)
+            castle_x, castle_y = 300, MAP_HEIGHT - 300
+        else:
+            # Top-right corner (host's enemy position)
+            castle_x, castle_y = MAP_WIDTH - 300, 300
+
+        castle = Building(castle_x, castle_y, BuildingType.CASTLE, Team.ENEMY,
                          _mod_manager=self.mod_manager)
         castle.uid = self.next_uid(for_enemy=True)
         self.buildings.append(castle)
 
-    def _create_enemy_starting_units(self):
-        """Create enemy starting units (for AI or multiplayer)."""
+    def _create_enemy_starting_units(self, mirrored: bool = False):
+        """Create enemy starting units (for AI or multiplayer).
+
+        Args:
+            mirrored: If True, place in bottom-left instead of top-right (for multiplayer client)
+        """
+        if mirrored:
+            # Bottom-left corner (client's enemy position = host's player position)
+            peasant_base_x, peasant_y = 350, MAP_HEIGHT - 250
+            peasant_offset = 40  # Move right for each peasant
+            knight_x, knight_y = 300, MAP_HEIGHT - 200
+        else:
+            # Top-right corner (host's enemy position)
+            peasant_base_x, peasant_y = MAP_WIDTH - 350, 250
+            peasant_offset = -40  # Move left for each peasant
+            knight_x, knight_y = MAP_WIDTH - 300, 200
+
         for i in range(3):
-            peasant = Unit(MAP_WIDTH - 350 - i * 40, 250, UnitType.PEASANT, Team.ENEMY,
+            peasant = Unit(peasant_base_x + i * peasant_offset, peasant_y, UnitType.PEASANT, Team.ENEMY,
                           _mod_manager=self.mod_manager)
             peasant.uid = self.next_uid(for_enemy=True)
             self.units.append(peasant)
 
-        knight = Unit(MAP_WIDTH - 300, 200, UnitType.KNIGHT, Team.ENEMY,
+        knight = Unit(knight_x, knight_y, UnitType.KNIGHT, Team.ENEMY,
                      _mod_manager=self.mod_manager)
         knight.uid = self.next_uid(for_enemy=True)
         self.units.append(knight)
@@ -1737,6 +1791,11 @@ class Game:
                     # Translate UIDs from peer's perspective to ours
                     translated_unit_uids = [self._translate_uid_from_peer(uid) for uid in data['units']]
 
+                    # Mirror position if we're the client (peer already mirrored when sending)
+                    target_pos = data['target']
+                    if self.network.should_mirror():
+                        target_pos = self.network.mirror_pos(target_pos[0], target_pos[1])
+
                     target_unit = None
                     target_building = None
 
@@ -1768,7 +1827,7 @@ class Game:
                                 else:
                                     unit.set_building_target(target_building)
                             else:
-                                unit.set_move_target(*data['target'])
+                                unit.set_move_target(*target_pos)
 
                 elif command == 'assign_worker':
                     # Handle worker assignment - translate UIDs
@@ -1813,8 +1872,13 @@ class Game:
                     building_type_name = data['building_type']
                     building_type = BuildingType[building_type_name.upper()]
 
+                    # Mirror position if we're the client
+                    build_x, build_y = data['x'], data['y']
+                    if self.network.should_mirror():
+                        build_x, build_y = self.network.mirror_pos(build_x, build_y)
+
                     building = Building(
-                        data['x'], data['y'],
+                        build_x, build_y,
                         building_type, Team.ENEMY,
                         _mod_manager=self.mod_manager
                     )
