@@ -1791,10 +1791,8 @@ class Game:
                     # Translate UIDs from peer's perspective to ours
                     translated_unit_uids = [self._translate_uid_from_peer(uid) for uid in data['units']]
 
-                    # Mirror position if we're the client (peer already mirrored when sending)
+                    # Position is already mirrored by sender - use as-is
                     target_pos = data['target']
-                    if self.network.should_mirror():
-                        target_pos = self.network.mirror_pos(target_pos[0], target_pos[1])
 
                     target_unit = None
                     target_building = None
@@ -1872,10 +1870,8 @@ class Game:
                     building_type_name = data['building_type']
                     building_type = BuildingType[building_type_name.upper()]
 
-                    # Mirror position if we're the client
+                    # Position is already mirrored by sender - use as-is
                     build_x, build_y = data['x'], data['y']
-                    if self.network.should_mirror():
-                        build_x, build_y = self.network.mirror_pos(build_x, build_y)
 
                     building = Building(
                         build_x, build_y,
