@@ -8,8 +8,10 @@ import math
 import time
 from typing import List, Optional, Tuple
 
+from . import constants
 from .constants import (
-    SCREEN_WIDTH, SCREEN_HEIGHT, MAP_WIDTH, MAP_HEIGHT, TILE_SIZE, FPS,
+    MAP_WIDTH, MAP_HEIGHT, TILE_SIZE, FPS,
+    BASE_WIDTH, BASE_HEIGHT, RESOLUTIONS, scale, scale_pos, get_scale,
     WHITE, BLACK, RED, GREEN, GOLD, GRAY, DARK_GRAY, LIGHT_GRAY, BROWN, YELLOW,
     GameState, UnitType, BuildingType, Team, Difficulty, DIFFICULTY_SETTINGS,
     UNIT_COSTS, BUILDING_COSTS, RESOURCE_TICK_INTERVAL, BUILD_TIMES, DECONSTRUCT_REFUND,
@@ -34,7 +36,7 @@ class Game:
         pygame.font.init()
         pygame.mixer.init()
 
-        self.screen = pygame.display.set_mode((SCREEN_WIDTH, SCREEN_HEIGHT))
+        self.screen = pygame.display.set_mode((constants.SCREEN_WIDTH, constants.SCREEN_HEIGHT))
         pygame.display.set_caption("Medieval RTS")
         self.clock = pygame.time.Clock()
 
@@ -55,7 +57,7 @@ class Game:
         self._load_sounds()
 
         # Camera
-        self.camera = Camera(SCREEN_WIDTH, SCREEN_HEIGHT)
+        self.camera = Camera(constants.SCREEN_WIDTH, constants.SCREEN_HEIGHT)
 
         # Game objects
         self.units: List[Unit] = []
@@ -106,6 +108,7 @@ class Game:
         self.selected_difficulty = Difficulty.NORMAL
         self.grid_snap = False  # Toggle for grid snapping when placing buildings
         self.grid_size = 64  # Grid cell size for snapping
+        self.resolution_index = 0  # Index into RESOLUTIONS list
 
         # Healing system - units consume food to heal
         self.player_healing_enabled = False
@@ -148,49 +151,50 @@ class Game:
         """Initialize UI components."""
         # Main menu buttons
         self.menu_buttons = [
-            Button(SCREEN_WIDTH // 2 - 150, 220, 300, 50, "Play vs AI"),
-            Button(SCREEN_WIDTH // 2 - 150, 285, 300, 50, "Host Multiplayer"),
-            Button(SCREEN_WIDTH // 2 - 150, 350, 300, 50, "Join Multiplayer"),
-            Button(SCREEN_WIDTH // 2 - 150, 415, 300, 50, "How to Play"),
-            Button(SCREEN_WIDTH // 2 - 150, 480, 300, 50, "Settings"),
-            Button(SCREEN_WIDTH // 2 - 150, 545, 300, 50, "Quit")
+            Button(constants.SCREEN_WIDTH // 2 - 150, 220, 300, 50, "Play vs AI"),
+            Button(constants.SCREEN_WIDTH // 2 - 150, 285, 300, 50, "Host Multiplayer"),
+            Button(constants.SCREEN_WIDTH // 2 - 150, 350, 300, 50, "Join Multiplayer"),
+            Button(constants.SCREEN_WIDTH // 2 - 150, 415, 300, 50, "How to Play"),
+            Button(constants.SCREEN_WIDTH // 2 - 150, 480, 300, 50, "Settings"),
+            Button(constants.SCREEN_WIDTH // 2 - 150, 545, 300, 50, "Quit")
         ]
 
         # How to Play back button
-        self.how_to_play_back_button = Button(SCREEN_WIDTH // 2 - 75, SCREEN_HEIGHT - 60, 150, 40, "Back")
+        self.how_to_play_back_button = Button(constants.SCREEN_WIDTH // 2 - 75, constants.SCREEN_HEIGHT - 60, 150, 40, "Back")
 
         # Difficulty selection buttons (spaced for descriptions)
         self.difficulty_buttons = [
-            Button(SCREEN_WIDTH // 2 - 150, 200, 300, 45, "Easy"),
-            Button(SCREEN_WIDTH // 2 - 150, 290, 300, 45, "Normal"),
-            Button(SCREEN_WIDTH // 2 - 150, 380, 300, 45, "Hard"),
-            Button(SCREEN_WIDTH // 2 - 150, 470, 300, 45, "Brutal"),
+            Button(constants.SCREEN_WIDTH // 2 - 150, 200, 300, 45, "Easy"),
+            Button(constants.SCREEN_WIDTH // 2 - 150, 290, 300, 45, "Normal"),
+            Button(constants.SCREEN_WIDTH // 2 - 150, 380, 300, 45, "Hard"),
+            Button(constants.SCREEN_WIDTH // 2 - 150, 470, 300, 45, "Brutal"),
         ]
-        self.difficulty_back_button = Button(SCREEN_WIDTH // 2 - 150, 560, 300, 45, "Back")
+        self.difficulty_back_button = Button(constants.SCREEN_WIDTH // 2 - 150, 560, 300, 45, "Back")
 
         # Settings buttons
-        self.fullscreen_button = Button(SCREEN_WIDTH // 2 - 150, 250, 300, 50, "Fullscreen: Off")
-        self.vsync_button = Button(SCREEN_WIDTH // 2 - 150, 310, 300, 50, "VSync: Off")
-        self.sound_button = Button(SCREEN_WIDTH // 2 - 150, 370, 300, 50, "Sound: On")
-        self.grid_snap_button = Button(SCREEN_WIDTH // 2 - 150, 430, 300, 50, "Grid Snap: Off")
-        self.keybinds_button = Button(SCREEN_WIDTH // 2 - 150, 490, 300, 50, "Keybinds")
-        self.settings_back_button = Button(SCREEN_WIDTH // 2 - 150, 550, 300, 50, "Back")
+        self.resolution_button = Button(constants.SCREEN_WIDTH // 2 - 150, 220, 300, 45, f"Resolution: {constants.SCREEN_WIDTH}x{constants.SCREEN_HEIGHT}")
+        self.fullscreen_button = Button(constants.SCREEN_WIDTH // 2 - 150, 275, 300, 45, "Fullscreen: Off")
+        self.vsync_button = Button(constants.SCREEN_WIDTH // 2 - 150, 330, 300, 45, "VSync: Off")
+        self.sound_button = Button(constants.SCREEN_WIDTH // 2 - 150, 385, 300, 45, "Sound: On")
+        self.grid_snap_button = Button(constants.SCREEN_WIDTH // 2 - 150, 440, 300, 45, "Grid Snap: Off")
+        self.keybinds_button = Button(constants.SCREEN_WIDTH // 2 - 150, 495, 300, 45, "Keybinds")
+        self.settings_back_button = Button(constants.SCREEN_WIDTH // 2 - 150, 550, 300, 45, "Back")
 
         # Keybinds menu buttons
-        self.keybinds_back_button = Button(SCREEN_WIDTH // 2 - 75, SCREEN_HEIGHT - 60, 150, 40, "Back")
-        self.keybinds_reset_button = Button(SCREEN_WIDTH // 2 - 225, SCREEN_HEIGHT - 60, 140, 40, "Reset All")
+        self.keybinds_back_button = Button(constants.SCREEN_WIDTH // 2 - 75, constants.SCREEN_HEIGHT - 60, 150, 40, "Back")
+        self.keybinds_reset_button = Button(constants.SCREEN_WIDTH // 2 - 225, constants.SCREEN_HEIGHT - 60, 140, 40, "Reset All")
 
         # Multiplayer UI
-        self.ip_input = TextInput(SCREEN_WIDTH // 2 - 150, 350, 300, 40, "Enter IP address")
-        self.connect_button = Button(SCREEN_WIDTH // 2 - 75, 410, 150, 40, "Connect")
-        self.back_button = Button(SCREEN_WIDTH // 2 - 75, 470, 150, 40, "Back")
-        self.accept_button = Button(SCREEN_WIDTH // 2 - 160, 400, 150, 40, "Accept")
-        self.decline_button = Button(SCREEN_WIDTH // 2 + 10, 400, 150, 40, "Decline")
+        self.ip_input = TextInput(constants.SCREEN_WIDTH // 2 - 150, 350, 300, 40, "Enter IP address")
+        self.connect_button = Button(constants.SCREEN_WIDTH // 2 - 75, 410, 150, 40, "Connect")
+        self.back_button = Button(constants.SCREEN_WIDTH // 2 - 75, 470, 150, 40, "Back")
+        self.accept_button = Button(constants.SCREEN_WIDTH // 2 - 160, 400, 150, 40, "Accept")
+        self.decline_button = Button(constants.SCREEN_WIDTH // 2 + 10, 400, 150, 40, "Decline")
 
         # HUD components
-        self.minimap = Minimap(SCREEN_WIDTH - 160, 10, 150, MAP_WIDTH, MAP_HEIGHT)
-        self.resource_display = ResourceDisplay(SCREEN_WIDTH - 300, SCREEN_HEIGHT - 95)
-        self.selection_info = SelectionInfo(520, SCREEN_HEIGHT - 70)
+        self.minimap = Minimap(constants.SCREEN_WIDTH - 160, 10, 150, MAP_WIDTH, MAP_HEIGHT)
+        self.resource_display = ResourceDisplay(constants.SCREEN_WIDTH - 300, constants.SCREEN_HEIGHT - 95)
+        self.selection_info = SelectionInfo(520, constants.SCREEN_HEIGHT - 70)
 
     def _load_sounds(self):
         """Load all sound effects."""
@@ -315,7 +319,7 @@ class Game:
 
         # Position camera at player start
         self.camera.x = 0
-        self.camera.y = MAP_HEIGHT - SCREEN_HEIGHT
+        self.camera.y = MAP_HEIGHT - constants.SCREEN_HEIGHT
 
         self.state = GameState.PLAYING
 
@@ -468,6 +472,7 @@ class Game:
 
     def _handle_settings_input(self, mouse_pos: Tuple[int, int], clicked: bool):
         """Handle settings menu input."""
+        self.resolution_button.update(mouse_pos)
         self.fullscreen_button.update(mouse_pos)
         self.vsync_button.update(mouse_pos)
         self.sound_button.update(mouse_pos)
@@ -476,7 +481,9 @@ class Game:
         self.settings_back_button.update(mouse_pos)
 
         if clicked:
-            if self.fullscreen_button.is_clicked(mouse_pos, True):
+            if self.resolution_button.is_clicked(mouse_pos, True):
+                self._cycle_resolution()
+            elif self.fullscreen_button.is_clicked(mouse_pos, True):
                 self._toggle_fullscreen()
             elif self.vsync_button.is_clicked(mouse_pos, True):
                 self._toggle_vsync()
@@ -497,10 +504,10 @@ class Game:
             flags = pygame.FULLSCREEN
             if self.vsync:
                 flags |= pygame.DOUBLEBUF
-            self.screen = pygame.display.set_mode((SCREEN_WIDTH, SCREEN_HEIGHT), flags, vsync=1 if self.vsync else 0)
+            self.screen = pygame.display.set_mode((constants.SCREEN_WIDTH, constants.SCREEN_HEIGHT), flags, vsync=1 if self.vsync else 0)
             self.fullscreen_button.text = "Fullscreen: On"
         else:
-            self.screen = pygame.display.set_mode((SCREEN_WIDTH, SCREEN_HEIGHT), vsync=1 if self.vsync else 0)
+            self.screen = pygame.display.set_mode((constants.SCREEN_WIDTH, constants.SCREEN_HEIGHT), vsync=1 if self.vsync else 0)
             self.fullscreen_button.text = "Fullscreen: Off"
 
     def _toggle_vsync(self):
@@ -511,9 +518,9 @@ class Game:
             flags = pygame.FULLSCREEN
             if self.vsync:
                 flags |= pygame.DOUBLEBUF
-            self.screen = pygame.display.set_mode((SCREEN_WIDTH, SCREEN_HEIGHT), flags, vsync=1 if self.vsync else 0)
+            self.screen = pygame.display.set_mode((constants.SCREEN_WIDTH, constants.SCREEN_HEIGHT), flags, vsync=1 if self.vsync else 0)
         else:
-            self.screen = pygame.display.set_mode((SCREEN_WIDTH, SCREEN_HEIGHT), vsync=1 if self.vsync else 0)
+            self.screen = pygame.display.set_mode((constants.SCREEN_WIDTH, constants.SCREEN_HEIGHT), vsync=1 if self.vsync else 0)
 
         if self.vsync:
             self.vsync_button.text = "VSync: On"
@@ -535,6 +542,90 @@ class Game:
             self.sound_button.text = "Sound: On"
         else:
             self.sound_button.text = "Sound: Off"
+
+    def _cycle_resolution(self):
+        """Cycle through available resolutions."""
+        self.resolution_index = (self.resolution_index + 1) % len(RESOLUTIONS)
+        new_width, new_height = RESOLUTIONS[self.resolution_index]
+
+        # Update the global constants
+        constants.SCREEN_WIDTH = new_width
+        constants.SCREEN_HEIGHT = new_height
+
+        # Recreate the display
+        flags = 0
+        if self.fullscreen:
+            flags = pygame.FULLSCREEN
+        if self.vsync:
+            flags |= pygame.DOUBLEBUF
+
+        self.screen = pygame.display.set_mode((new_width, new_height), flags, vsync=1 if self.vsync else 0)
+
+        # Update camera dimensions
+        self.camera.screen_width = new_width
+        self.camera.screen_height = new_height
+
+        # Update button text
+        self.resolution_button.text = f"Resolution: {new_width}x{new_height}"
+
+        # Recreate UI elements with new positions
+        self._recreate_ui()
+
+    def _recreate_ui(self):
+        """Recreate UI elements after resolution change."""
+        w = constants.SCREEN_WIDTH
+        h = constants.SCREEN_HEIGHT
+
+        # Main menu buttons
+        self.play_button = Button(w // 2 - 150, 280, 300, 50, "Play vs AI")
+        self.multiplayer_button = Button(w // 2 - 150, 350, 300, 50, "Multiplayer")
+        self.how_to_play_button = Button(w // 2 - 150, 420, 300, 50, "How to Play")
+        self.settings_button = Button(w // 2 - 150, 490, 300, 50, "Settings")
+        self.quit_button = Button(w // 2 - 150, 560, 300, 50, "Quit")
+
+        # Multiplayer menu buttons
+        self.host_button = Button(w // 2 - 150, 300, 300, 50, "Host Game")
+        self.join_button = Button(w // 2 - 150, 370, 300, 50, "Join Game")
+        self.lobby_back_button = Button(w // 2 - 150, 440, 300, 50, "Back")
+
+        # Difficulty buttons
+        self.difficulty_buttons = [
+            Button(w // 2 - 150, 290, 300, 45, "Easy"),
+            Button(w // 2 - 150, 350, 300, 45, "Normal"),
+            Button(w // 2 - 150, 410, 300, 45, "Hard"),
+            Button(w // 2 - 150, 470, 300, 45, "Brutal"),
+        ]
+        self.difficulty_back_button = Button(w // 2 - 150, 560, 300, 45, "Back")
+
+        # Settings buttons
+        res_text = f"Resolution: {w}x{h}"
+        self.resolution_button = Button(w // 2 - 150, 220, 300, 45, res_text)
+        self.fullscreen_button = Button(w // 2 - 150, 275, 300, 45,
+                                        "Fullscreen: On" if self.fullscreen else "Fullscreen: Off")
+        self.vsync_button = Button(w // 2 - 150, 330, 300, 45,
+                                   "VSync: On" if self.vsync else "VSync: Off")
+        self.sound_button = Button(w // 2 - 150, 385, 300, 45,
+                                   "Sound: On" if self.sound_enabled else "Sound: Off")
+        self.grid_snap_button = Button(w // 2 - 150, 440, 300, 45,
+                                       "Grid Snap: On" if self.grid_snap else "Grid Snap: Off")
+        self.keybinds_button = Button(w // 2 - 150, 495, 300, 45, "Keybinds")
+        self.settings_back_button = Button(w // 2 - 150, 550, 300, 45, "Back")
+
+        # Keybinds menu buttons
+        self.keybinds_back_button = Button(w // 2 - 75, h - 60, 150, 40, "Back")
+        self.keybinds_reset_button = Button(w // 2 - 225, h - 60, 140, 40, "Reset All")
+
+        # Multiplayer UI
+        self.ip_input = TextInput(w // 2 - 150, 350, 300, 40, "Enter IP address")
+        self.connect_button = Button(w // 2 - 75, 410, 150, 40, "Connect")
+        self.back_button = Button(w // 2 - 75, 470, 150, 40, "Back")
+        self.accept_button = Button(w // 2 - 160, 400, 150, 40, "Accept")
+        self.decline_button = Button(w // 2 + 10, 400, 150, 40, "Decline")
+
+        # HUD components
+        self.minimap = Minimap(w - 160, 10, 150, MAP_WIDTH, MAP_HEIGHT)
+        self.resource_display = ResourceDisplay(w - 300, h - 95)
+        self.selection_info = SelectionInfo(520, h - 70)
 
     def _get_key_name(self, key_code: int) -> str:
         """Get a human-readable name for a key code."""
@@ -587,7 +678,7 @@ class Game:
                 for i, action in enumerate(actions):
                     row_y = start_y + i * row_height
                     # Key button area (right side)
-                    key_rect = pygame.Rect(SCREEN_WIDTH // 2 + 50, row_y, 150, 35)
+                    key_rect = pygame.Rect(constants.SCREEN_WIDTH // 2 + 50, row_y, 150, 35)
                     if key_rect.collidepoint(mouse_pos):
                         self.rebinding_key = action
                         break
@@ -662,7 +753,7 @@ class Game:
             self._issue_command(world_pos)
 
         # HUD click
-        if clicked and mouse_pos[1] > SCREEN_HEIGHT - 100:
+        if clicked and mouse_pos[1] > constants.SCREEN_HEIGHT - 100:
             self._handle_hud_click(mouse_pos)
 
     def _handle_game_keys(self, event: pygame.event.Event):
@@ -733,7 +824,7 @@ class Game:
 
     def _handle_hud_click(self, mouse_pos: Tuple[int, int]):
         """Handle HUD button clicks."""
-        hud_y = SCREEN_HEIGHT - 100
+        hud_y = constants.SCREEN_HEIGHT - 100
         tab_height = 25
         content_y = hud_y + tab_height + 5
         button_size = 60
@@ -1869,11 +1960,11 @@ class Game:
 
         # Title
         title = self.title_font.render("Medieval RTS", True, GOLD)
-        title_rect = title.get_rect(center=(SCREEN_WIDTH // 2, 120))
+        title_rect = title.get_rect(center=(constants.SCREEN_WIDTH // 2, 120))
         self.screen.blit(title, title_rect)
 
         subtitle = self.font.render("A Real-Time Strategy Game", True, WHITE)
-        subtitle_rect = subtitle.get_rect(center=(SCREEN_WIDTH // 2, 170))
+        subtitle_rect = subtitle.get_rect(center=(constants.SCREEN_WIDTH // 2, 170))
         self.screen.blit(subtitle, subtitle_rect)
 
         # Buttons
@@ -1884,18 +1975,18 @@ class Game:
         if self.mod_manager.loaded_mods:
             mod_text = f"Loaded mods: {len(self.mod_manager.loaded_mods)}"
             mod_surf = self.font.render(mod_text, True, LIGHT_GRAY)
-            self.screen.blit(mod_surf, (10, SCREEN_HEIGHT - 30))
+            self.screen.blit(mod_surf, (10, constants.SCREEN_HEIGHT - 30))
 
     def _draw_lobby(self):
         """Draw multiplayer lobby."""
         self.screen.fill(DARK_GRAY)
 
         title = self.large_font.render("Join Multiplayer Game", True, WHITE)
-        title_rect = title.get_rect(center=(SCREEN_WIDTH // 2, 200))
+        title_rect = title.get_rect(center=(constants.SCREEN_WIDTH // 2, 200))
         self.screen.blit(title, title_rect)
 
         label = self.font.render("Host IP Address:", True, WHITE)
-        self.screen.blit(label, (SCREEN_WIDTH // 2 - 150, 320))
+        self.screen.blit(label, (constants.SCREEN_WIDTH // 2 - 150, 320))
 
         self.ip_input.draw(self.screen)
         self.connect_button.draw(self.screen)
@@ -1909,7 +2000,7 @@ class Game:
             title = self.large_font.render("Connecting...", True, WHITE)
             subtitle = self.font.render("Waiting for host to accept", True, LIGHT_GRAY)
             hint = self.font.render("Press ESC or click Cancel to abort", True, LIGHT_GRAY)
-            hint_rect = hint.get_rect(center=(SCREEN_WIDTH // 2, 380))
+            hint_rect = hint.get_rect(center=(constants.SCREEN_WIDTH // 2, 380))
             self.screen.blit(hint, hint_rect)
         else:
             if self.network.pending_invite:
@@ -1928,8 +2019,8 @@ class Game:
                     True, LIGHT_GRAY
                 )
 
-        title_rect = title.get_rect(center=(SCREEN_WIDTH // 2, 250))
-        subtitle_rect = subtitle.get_rect(center=(SCREEN_WIDTH // 2, 320))
+        title_rect = title.get_rect(center=(constants.SCREEN_WIDTH // 2, 250))
+        subtitle_rect = subtitle.get_rect(center=(constants.SCREEN_WIDTH // 2, 320))
         self.screen.blit(title, title_rect)
         self.screen.blit(subtitle, subtitle_rect)
 
@@ -1941,7 +2032,7 @@ class Game:
 
         # Title
         title = self.large_font.render("Select Difficulty", True, WHITE)
-        title_rect = title.get_rect(center=(SCREEN_WIDTH // 2, 150))
+        title_rect = title.get_rect(center=(constants.SCREEN_WIDTH // 2, 150))
         self.screen.blit(title, title_rect)
 
         # Difficulty buttons with descriptions
@@ -1956,7 +2047,7 @@ class Game:
             button.draw(self.screen)
             # Draw description below each button
             desc = self.font.render(descriptions[i], True, LIGHT_GRAY)
-            desc_rect = desc.get_rect(center=(SCREEN_WIDTH // 2, button.rect.bottom + 15))
+            desc_rect = desc.get_rect(center=(constants.SCREEN_WIDTH // 2, button.rect.bottom + 15))
             self.screen.blit(desc, desc_rect)
 
         self.difficulty_back_button.draw(self.screen)
@@ -1964,11 +2055,16 @@ class Game:
     def _draw_settings(self):
         """Draw settings menu."""
         self.screen.fill(DARK_GRAY)
+        w = constants.SCREEN_WIDTH
+        h = constants.SCREEN_HEIGHT
 
         # Title
         title = self.large_font.render("Settings", True, WHITE)
-        title_rect = title.get_rect(center=(SCREEN_WIDTH // 2, 180))
+        title_rect = title.get_rect(center=(w // 2, 170))
         self.screen.blit(title, title_rect)
+
+        # Resolution button
+        self.resolution_button.draw(self.screen)
 
         # Fullscreen button
         self.fullscreen_button.draw(self.screen)
@@ -1990,7 +2086,7 @@ class Game:
 
         # Instructions
         hint = self.font.render("Press F11 in-game to toggle fullscreen", True, LIGHT_GRAY)
-        hint_rect = hint.get_rect(center=(SCREEN_WIDTH // 2, 620))
+        hint_rect = hint.get_rect(center=(w // 2, h - 80))
         self.screen.blit(hint, hint_rect)
 
     def _draw_keybinds(self):
@@ -1999,12 +2095,12 @@ class Game:
 
         # Title
         title = self.large_font.render("Keybinds", True, WHITE)
-        title_rect = title.get_rect(center=(SCREEN_WIDTH // 2, 100))
+        title_rect = title.get_rect(center=(constants.SCREEN_WIDTH // 2, 100))
         self.screen.blit(title, title_rect)
 
         # Subtitle
         subtitle = self.font.render("Click a key to rebind, press ESC to cancel", True, LIGHT_GRAY)
-        subtitle_rect = subtitle.get_rect(center=(SCREEN_WIDTH // 2, 140))
+        subtitle_rect = subtitle.get_rect(center=(constants.SCREEN_WIDTH // 2, 140))
         self.screen.blit(subtitle, subtitle_rect)
 
         # Draw keybind rows
@@ -2018,10 +2114,10 @@ class Game:
             # Action name (left side)
             action_name = self.keybind_names.get(action, action)
             name_text = self.font.render(action_name, True, WHITE)
-            self.screen.blit(name_text, (SCREEN_WIDTH // 2 - 200, row_y + 8))
+            self.screen.blit(name_text, (constants.SCREEN_WIDTH // 2 - 200, row_y + 8))
 
             # Key button (right side)
-            key_rect = pygame.Rect(SCREEN_WIDTH // 2 + 50, row_y, 150, 35)
+            key_rect = pygame.Rect(constants.SCREEN_WIDTH // 2 + 50, row_y, 150, 35)
 
             # Highlight if currently rebinding this action
             if self.rebinding_key == action:
@@ -2046,12 +2142,12 @@ class Game:
 
         # Title
         title = self.large_font.render("How to Play", True, GOLD)
-        title_rect = title.get_rect(center=(SCREEN_WIDTH // 2, 40))
+        title_rect = title.get_rect(center=(constants.SCREEN_WIDTH // 2, 40))
         self.screen.blit(title, title_rect)
 
         # Two-column layout
         left_x = 60
-        right_x = SCREEN_WIDTH // 2 + 40
+        right_x = constants.SCREEN_WIDTH // 2 + 40
         y_start = 80
 
         # Left column - Controls (using configurable keybinds)
@@ -2154,8 +2250,8 @@ class Game:
         start_x = int(self.camera.x // TILE_SIZE) * TILE_SIZE
         start_y = int(self.camera.y // TILE_SIZE) * TILE_SIZE
 
-        for y in range(start_y, int(start_y + SCREEN_HEIGHT + TILE_SIZE * 2), TILE_SIZE):
-            for x in range(start_x, int(start_x + SCREEN_WIDTH + TILE_SIZE * 2), TILE_SIZE):
+        for y in range(start_y, int(start_y + constants.SCREEN_HEIGHT + TILE_SIZE * 2), TILE_SIZE):
+            for x in range(start_x, int(start_x + constants.SCREEN_WIDTH + TILE_SIZE * 2), TILE_SIZE):
                 screen_pos = self.camera.world_to_screen(x, y)
                 self.screen.blit(grass, screen_pos)
 
@@ -2285,7 +2381,7 @@ class Game:
             return
 
         # Create a single surface for all movement lines (more efficient)
-        line_surface = pygame.Surface((SCREEN_WIDTH, SCREEN_HEIGHT), pygame.SRCALPHA)
+        line_surface = pygame.Surface((constants.SCREEN_WIDTH, constants.SCREEN_HEIGHT), pygame.SRCALPHA)
         line_color = (255, 255, 255, 51)  # 80% transparent white (alpha = 51)
 
         for unit in self.selected_units:
@@ -2367,23 +2463,23 @@ class Game:
             start_grid_x = (cam_x // self.grid_size) * self.grid_size
             start_grid_y = (cam_y // self.grid_size) * self.grid_size
             # Draw only a few grid lines around the mouse position for clarity
-            for gx in range(int(start_grid_x), int(start_grid_x + SCREEN_WIDTH + self.grid_size * 2), self.grid_size):
+            for gx in range(int(start_grid_x), int(start_grid_x + constants.SCREEN_WIDTH + self.grid_size * 2), self.grid_size):
                 sx, _ = self.camera.world_to_screen(gx, 0)
-                pygame.draw.line(self.screen, DARK_GRAY, (sx, 0), (sx, SCREEN_HEIGHT - 100), 1)
-            for gy in range(int(start_grid_y), int(start_grid_y + SCREEN_HEIGHT + self.grid_size * 2), self.grid_size):
+                pygame.draw.line(self.screen, DARK_GRAY, (sx, 0), (sx, constants.SCREEN_HEIGHT - 100), 1)
+            for gy in range(int(start_grid_y), int(start_grid_y + constants.SCREEN_HEIGHT + self.grid_size * 2), self.grid_size):
                 _, sy = self.camera.world_to_screen(0, gy)
-                pygame.draw.line(self.screen, DARK_GRAY, (0, sy), (SCREEN_WIDTH, sy), 1)
+                pygame.draw.line(self.screen, DARK_GRAY, (0, sy), (constants.SCREEN_WIDTH, sy), 1)
 
     def _draw_hud(self):
         """Draw the HUD with tabbed interface."""
-        hud_y = SCREEN_HEIGHT - 100
+        hud_y = constants.SCREEN_HEIGHT - 100
         tab_height = 25
         content_y = hud_y + tab_height + 5
         button_size = 60
         small_btn = 45
 
         # Bottom panel background
-        panel_rect = pygame.Rect(0, hud_y, SCREEN_WIDTH, 100)
+        panel_rect = pygame.Rect(0, hud_y, constants.SCREEN_WIDTH, 100)
         pygame.draw.rect(self.screen, DARK_GRAY, panel_rect)
         pygame.draw.rect(self.screen, BLACK, panel_rect, 2)
 
@@ -2529,7 +2625,7 @@ class Game:
     def _draw_selection_info(self):
         """Draw selection information on the HUD."""
         info_x = 640
-        info_y = SCREEN_HEIGHT - 90
+        info_y = constants.SCREEN_HEIGHT - 90
 
         if self.selected_units:
             count = len(self.selected_units)
@@ -2585,7 +2681,7 @@ class Game:
 
     def _draw_game_over(self):
         """Draw game over overlay."""
-        overlay = pygame.Surface((SCREEN_WIDTH, SCREEN_HEIGHT))
+        overlay = pygame.Surface((constants.SCREEN_WIDTH, constants.SCREEN_HEIGHT))
         overlay.fill(BLACK)
         overlay.set_alpha(180)
         self.screen.blit(overlay, (0, 0))
@@ -2603,11 +2699,11 @@ class Game:
             color = RED
 
         title = self.title_font.render(text, True, color)
-        title_rect = title.get_rect(center=(SCREEN_WIDTH // 2, SCREEN_HEIGHT // 2 - 50))
+        title_rect = title.get_rect(center=(constants.SCREEN_WIDTH // 2, constants.SCREEN_HEIGHT // 2 - 50))
         self.screen.blit(title, title_rect)
 
         instruction = self.font.render("Press ESC to return to menu", True, WHITE)
-        instruction_rect = instruction.get_rect(center=(SCREEN_WIDTH // 2, SCREEN_HEIGHT // 2 + 50))
+        instruction_rect = instruction.get_rect(center=(constants.SCREEN_WIDTH // 2, constants.SCREEN_HEIGHT // 2 + 50))
         self.screen.blit(instruction, instruction_rect)
 
     # =========================================================================

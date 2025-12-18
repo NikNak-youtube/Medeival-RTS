@@ -5,9 +5,10 @@ UI components: Buttons, Text Input, HUD elements.
 import pygame
 from typing import Tuple, Optional, Callable
 
+from . import constants
 from .constants import (
     WHITE, BLACK, GRAY, LIGHT_GRAY, DARK_GRAY, RED, GREEN, GOLD, BROWN,
-    SCREEN_WIDTH, SCREEN_HEIGHT, UNIT_COSTS, BUILDING_COSTS
+    UNIT_COSTS, BUILDING_COSTS
 )
 
 
@@ -396,8 +397,8 @@ class Tooltip:
         x = self.pos[0]
         y = self.pos[1] - height - 5
 
-        if x + width > SCREEN_WIDTH:
-            x = SCREEN_WIDTH - width
+        if x + width > constants.SCREEN_WIDTH:
+            x = constants.SCREEN_WIDTH - width
         if y < 0:
             y = self.pos[1] + 20
 

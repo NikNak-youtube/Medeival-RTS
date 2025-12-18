@@ -8,8 +8,45 @@ from enum import Enum, auto
 # DISPLAY SETTINGS
 # =============================================================================
 
+# Base resolution (all UI measurements are relative to this)
+BASE_WIDTH = 1280
+BASE_HEIGHT = 720
+
+# Available resolutions
+RESOLUTIONS = [
+    (1280, 720),    # 720p
+    (1600, 900),    # 900p
+    (1920, 1080),   # 1080p
+    (2560, 1440),   # 1440p
+    (3840, 2160),   # 4K
+]
+
+# Current resolution (can be changed at runtime)
 SCREEN_WIDTH = 1280
 SCREEN_HEIGHT = 720
+
+# Scale factor (computed at runtime based on resolution)
+SCALE = 1.0
+
+def get_scale():
+    """Get current scale factor."""
+    return SCREEN_WIDTH / BASE_WIDTH
+
+def scale(value):
+    """Scale a value from base resolution to current resolution."""
+    return int(value * get_scale())
+
+def scale_pos(x, y):
+    """Scale a position tuple."""
+    s = get_scale()
+    return (int(x * s), int(y * s))
+
+def scale_rect(x, y, w, h):
+    """Scale a rectangle."""
+    s = get_scale()
+    return (int(x * s), int(y * s), int(w * s), int(h * s))
+
+# Map dimensions (in game units, not affected by UI scale)
 MAP_WIDTH = 2000
 MAP_HEIGHT = 2000
 TILE_SIZE = 64
