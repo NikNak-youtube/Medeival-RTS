@@ -2367,6 +2367,17 @@ class Game:
             if unit.selected:
                 pygame.draw.circle(self.screen, GREEN, screen_pos, int(30 * scale), 2)
 
+                # Range indicator for ranged units (cannons)
+                if unit.unit_type == UnitType.CANNON:
+                    range_radius = int(unit.attack_range * scale)
+                    # Create a surface for the semi-transparent circle
+                    range_surface = pygame.Surface((range_radius * 2, range_radius * 2), pygame.SRCALPHA)
+                    # 85% transparent white (255 * 0.15 = ~38 alpha)
+                    pygame.draw.circle(range_surface, (255, 255, 255, 38),
+                                     (range_radius, range_radius), range_radius, 2)
+                    self.screen.blit(range_surface,
+                                   (screen_pos[0] - range_radius, screen_pos[1] - range_radius))
+
             # Working indicator for peasants
             if unit.unit_type == UnitType.PEASANT and unit.is_working:
                 # Draw a small pickaxe/work icon (yellow circle)
@@ -2421,6 +2432,17 @@ class Game:
 
             if building.selected:
                 pygame.draw.rect(self.screen, GREEN, rect.inflate(int(10 * scale), int(10 * scale)), 3)
+
+                # Range indicator for towers
+                if building.building_type == BuildingType.TOWER and building.completed:
+                    range_radius = int(TOWER_STATS['range'] * scale)
+                    # Create a surface for the semi-transparent circle
+                    range_surface = pygame.Surface((range_radius * 2, range_radius * 2), pygame.SRCALPHA)
+                    # 85% transparent white (255 * 0.15 = ~38 alpha)
+                    pygame.draw.circle(range_surface, (255, 255, 255, 38),
+                                     (range_radius, range_radius), range_radius, 2)
+                    self.screen.blit(range_surface,
+                                   (screen_pos[0] - range_radius, screen_pos[1] - range_radius))
 
             # Draw construction progress for incomplete buildings
             if not building.completed and building.team == Team.PLAYER:
