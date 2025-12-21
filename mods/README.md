@@ -125,7 +125,7 @@ Override unit stats and/or costs:
 
 ### buildings.json
 
-Override building stats and/or costs:
+Override building stats, costs, and resource generation:
 
 ```json
 {
@@ -139,17 +139,37 @@ Override building stats and/or costs:
             "gold": 80,
             "wood": 40
         }
+    },
+    "generation": {
+        "house": {
+            "gold": 30,
+            "food": 0,
+            "wood": 0,
+            "max_workers": 5
+        }
     }
 }
 ```
 
+#### Generation Options
+| Option | Description | Default (House) |
+|--------|-------------|-----------------|
+| `gold` | Gold generated per tick | 20 |
+| `food` | Food generated per tick | 0 |
+| `wood` | Wood generated per tick | 0 |
+| `max_workers` | Maximum workers allowed | 2 |
+
 ## Tips
 
-1. Mods are loaded alphabetically by folder name
+1. Mods are loaded in the order shown in the Mod Manager
 2. Later mods override earlier ones
 3. Use PNG format with transparency for best results
 4. Match the default sprite sizes for best appearance
-5. Test your mod by checking the "Loaded mods" count on the main menu
+5. Use the Mod Manager (Main Menu > Mods) to enable/disable mods and change load order
+
+## Built-in Mods
+
+- **unlimited_workers** - Removes worker limits from all buildings (disabled by default)
 
 ## Example Mod
 

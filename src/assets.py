@@ -37,7 +37,7 @@ import pygame
 import json
 import os
 from typing import Dict, Tuple, Optional, List
-from .constants import TILE_SIZE, UNIT_STATS, UNIT_COSTS, BUILDING_STATS, BUILDING_COSTS
+from .constants import TILE_SIZE, UNIT_STATS, UNIT_COSTS, BUILDING_STATS, BUILDING_COSTS, BUILDING_RESOURCE_GENERATION
 
 
 # =============================================================================
@@ -125,6 +125,7 @@ class ModManager:
         self.unit_cost_overrides: Dict[str, dict] = {}
         self.building_stat_overrides: Dict[str, dict] = {}
         self.building_cost_overrides: Dict[str, dict] = {}
+        self.building_generation_overrides: Dict[str, dict] = {}  # For worker limits, resource gen
         # Mod configuration: which mods are enabled and their load order
         self.mod_config: Dict[str, dict] = {}  # mod_folder -> {enabled: bool, order: int}
         self.config_path = os.path.join(mods_directory, "mod_config.json")
@@ -196,12 +197,16 @@ class ModManager:
         # Get all discovered mods
         discovered = self.discover_mods()
 
+        # Built-in mods that should be disabled by default
+        disabled_by_default = {'unlimited_workers'}
+
         # Initialize config for any new mods
         for mod_name in discovered:
             if mod_name not in self.mod_config:
-                # New mod - enable by default, add to end of order
+                # New mod - check if it should be disabled by default
+                enabled = mod_name not in disabled_by_default
                 max_order = max((c.get('order', 0) for c in self.mod_config.values()), default=-1)
-                self.mod_config[mod_name] = {'enabled': True, 'order': max_order + 1}
+                self.mod_config[mod_name] = {'enabled': enabled, 'order': max_order + 1}
 
         # Remove config for mods that no longer exist
         self.mod_config = {k: v for k, v in self.mod_config.items() if k in discovered}
@@ -286,6 +291,7 @@ class ModManager:
         self.unit_cost_overrides.clear()
         self.building_stat_overrides.clear()
         self.building_cost_overrides.clear()
+        self.building_generation_overrides.clear()
         # Reload
         self.load_all_mods()
 
@@ -353,6 +359,10 @@ class ModManager:
                 for key, value in buildings_data['costs'].items():
                     if not key.startswith('_') and isinstance(value, dict):
                         self.building_cost_overrides[key] = value
+            if 'generation' in buildings_data and isinstance(buildings_data['generation'], dict):
+                for key, value in buildings_data['generation'].items():
+                    if not key.startswith('_') and isinstance(value, dict):
+                        self.building_generation_overrides[key] = value
 
     def get_asset_info(self, asset_name: str) -> dict:
         """Get asset info, checking mod overrides first."""
@@ -387,6 +397,13 @@ class ModManager:
         if building_type in self.building_cost_overrides:
             base_costs.update(self.building_cost_overrides[building_type])
         return base_costs
+
+    def get_building_generation(self, building_type: str) -> dict:
+        """Get building resource generation with mod overrides applied."""
+        base_gen = BUILDING_RESOURCE_GENERATION.get(building_type, {}).copy()
+        if building_type in self.building_generation_overrides:
+            base_gen.update(self.building_generation_overrides[building_type])
+        return base_gen
 
 
 # =============================================================================

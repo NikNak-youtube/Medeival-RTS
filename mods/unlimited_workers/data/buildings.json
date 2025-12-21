@@ -1,0 +1,17 @@
+{
+    "_comment": "This mod removes worker limits from all buildings",
+    "generation": {
+        "house": {
+            "max_workers": 9999
+        },
+        "farm": {
+            "max_workers": 9999
+        },
+        "castle": {
+            "max_workers": 9999
+        },
+        "tower": {
+            "max_workers": 9999
+        }
+    }
+}

@@ -2,5 +2,9 @@
   "example_mod": {
     "enabled": false,
     "order": 0
+  },
+  "unlimited_workers": {
+    "enabled": false,
+    "order": 1
   }
 }

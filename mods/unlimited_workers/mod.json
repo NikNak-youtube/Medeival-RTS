@@ -1,0 +1,7 @@
+{
+    "name": "Unlimited Workers",
+    "version": "1.0.0",
+    "author": "Built-in",
+    "description": "Removes worker limits from all buildings - assign as many peasants as you want!",
+    "game_version": "1.0.0"
+}

@@ -318,7 +318,10 @@ class Building:
     def get_max_workers(self) -> int:
         """Get maximum number of workers this building can have."""
         type_key = self.building_type.name.lower()
-        gen_data = BUILDING_RESOURCE_GENERATION.get(type_key, {})
+        if self._mod_manager:
+            gen_data = self._mod_manager.get_building_generation(type_key)
+        else:
+            gen_data = BUILDING_RESOURCE_GENERATION.get(type_key, {})
         return gen_data.get('max_workers', 1)
 
     def count_workers(self, units: List['Unit']) -> int:
@@ -343,7 +346,10 @@ class Building:
     def get_resource_generation(self, units: List['Unit']) -> dict:
         """Get actual resource generation based on workers."""
         type_key = self.building_type.name.lower()
-        base_gen = BUILDING_RESOURCE_GENERATION.get(type_key, {})
+        if self._mod_manager:
+            base_gen = self._mod_manager.get_building_generation(type_key)
+        else:
+            base_gen = BUILDING_RESOURCE_GENERATION.get(type_key, {})
         multiplier = self.get_production_multiplier(units)
 
         return {
