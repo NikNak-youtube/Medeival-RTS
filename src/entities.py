@@ -336,11 +336,14 @@ class Building:
         return count
 
     def get_production_multiplier(self, units: List['Unit']) -> float:
-        """Get production multiplier based on workers (0.0 to 1.0)."""
+        """Get production multiplier based on workers (0.0 to 1.0, or higher if unlimited)."""
         max_workers = self.get_max_workers()
         if max_workers == 0:
             return 0.0
         workers = self.count_workers(units)
+        # If max_workers is very high (unlimited mode), each worker provides full production
+        if max_workers >= 100:
+            return float(workers)
         return min(1.0, workers / max_workers)
 
     def get_resource_generation(self, units: List['Unit']) -> dict:
