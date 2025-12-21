@@ -170,13 +170,21 @@ class Game:
         btn_w, btn_h = int(300 * s), int(50 * s)
         btn_x = w // 2 - btn_w // 2
         self.menu_buttons = [
-            Button(btn_x, int(220 * s), btn_w, btn_h, "Play vs AI", font_size=btn_font),
-            Button(btn_x, int(285 * s), btn_w, btn_h, "Host Multiplayer", font_size=btn_font),
-            Button(btn_x, int(350 * s), btn_w, btn_h, "Join Multiplayer", font_size=btn_font),
-            Button(btn_x, int(415 * s), btn_w, btn_h, "How to Play", font_size=btn_font),
-            Button(btn_x, int(480 * s), btn_w, btn_h, "Settings", font_size=btn_font),
-            Button(btn_x, int(545 * s), btn_w, btn_h, "Quit", font_size=btn_font)
+            Button(btn_x, int(200 * s), btn_w, btn_h, "Play vs AI", font_size=btn_font),
+            Button(btn_x, int(260 * s), btn_w, btn_h, "Host Multiplayer", font_size=btn_font),
+            Button(btn_x, int(320 * s), btn_w, btn_h, "Join Multiplayer", font_size=btn_font),
+            Button(btn_x, int(380 * s), btn_w, btn_h, "How to Play", font_size=btn_font),
+            Button(btn_x, int(440 * s), btn_w, btn_h, "Settings", font_size=btn_font),
+            Button(btn_x, int(500 * s), btn_w, btn_h, "Mods", font_size=btn_font),
+            Button(btn_x, int(560 * s), btn_w, btn_h, "Quit", font_size=btn_font)
         ]
+
+        # Mods menu buttons
+        mod_btn_w, mod_btn_h = int(120 * s), int(35 * s)
+        self.mods_back_button = Button(w // 2 - mod_btn_w // 2, h - int(60 * s), mod_btn_w, mod_btn_h, "Back", font_size=btn_font)
+        self.mods_apply_button = Button(w // 2 - mod_btn_w - int(70 * s), h - int(60 * s), mod_btn_w, mod_btn_h, "Apply", font_size=btn_font)
+        self.mod_scroll_offset = 0
+        self.selected_mod_index = -1
 
         # How to Play back button
         back_w, back_h = int(150 * s), int(40 * s)
@@ -473,6 +481,13 @@ class Game:
                         self.selection_start = mouse_pos
                 elif event.button == 3:
                     right_clicked = True
+                elif event.button == 4 and self.state == GameState.MODS:
+                    # Scroll up
+                    self.mod_scroll_offset = max(0, self.mod_scroll_offset - 1)
+                elif event.button == 5 and self.state == GameState.MODS:
+                    # Scroll down
+                    max_offset = max(0, len(self.mod_manager.get_all_mods_info()) - 6)
+                    self.mod_scroll_offset = min(max_offset, self.mod_scroll_offset + 1)
 
             if event.type == pygame.MOUSEBUTTONUP:
                 if event.button == 1 and self.selection_start:
@@ -518,6 +533,8 @@ class Game:
             self._handle_how_to_play_input(mouse_pos, mouse_clicked)
         elif self.state == GameState.KEYBINDS:
             self._handle_keybinds_input(mouse_pos, mouse_clicked)
+        elif self.state == GameState.MODS:
+            self._handle_mods_input(mouse_pos, mouse_clicked)
 
     def _handle_menu_input(self, mouse_pos: Tuple[int, int], clicked: bool):
         """Handle main menu input."""
@@ -538,6 +555,10 @@ class Game:
             elif self.menu_buttons[4].is_clicked(mouse_pos, True):
                 self.state = GameState.SETTINGS
             elif self.menu_buttons[5].is_clicked(mouse_pos, True):
+                self.state = GameState.MODS
+                self.mod_scroll_offset = 0
+                self.selected_mod_index = -1
+            elif self.menu_buttons[6].is_clicked(mouse_pos, True):
                 self.running = False
 
     def _handle_difficulty_input(self, mouse_pos: Tuple[int, int], clicked: bool):
@@ -735,6 +756,73 @@ class Game:
         if clicked:
             if self.how_to_play_back_button.is_clicked(mouse_pos, True):
                 self.state = GameState.MAIN_MENU
+
+    def _handle_mods_input(self, mouse_pos: Tuple[int, int], clicked: bool):
+        """Handle mods menu input."""
+        self.mods_back_button.update(mouse_pos)
+        self.mods_apply_button.update(mouse_pos)
+
+        s = constants.get_scale()
+        mods_info = self.mod_manager.get_all_mods_info()
+
+        # Handle scroll with mouse wheel (handled in event loop, check for scroll here)
+        # We'll handle scrolling in _process_events
+
+        if clicked:
+            if self.mods_back_button.is_clicked(mouse_pos, True):
+                self.state = GameState.MAIN_MENU
+                return
+
+            if self.mods_apply_button.is_clicked(mouse_pos, True):
+                # Reload mods with new config
+                self.mod_manager.reload_mods()
+                # Reload assets with updated mod overrides
+                self.assets = AssetManager(mod_manager=self.mod_manager)
+                self.state = GameState.MAIN_MENU
+                return
+
+            # Check mod list clicks
+            list_x = constants.SCREEN_WIDTH // 2 - int(300 * s)
+            list_y = int(120 * s)
+            row_height = int(60 * s)
+            list_width = int(600 * s)
+            max_visible = 6
+
+            for i, mod_info in enumerate(mods_info):
+                if i < self.mod_scroll_offset or i >= self.mod_scroll_offset + max_visible:
+                    continue
+
+                display_i = i - self.mod_scroll_offset
+                row_y = list_y + display_i * row_height
+                row_rect = pygame.Rect(list_x, row_y, list_width, row_height - int(5 * s))
+
+                if row_rect.collidepoint(mouse_pos):
+                    mod_folder = mod_info['_folder']
+
+                    # Check enable/disable checkbox area (left side)
+                    checkbox_rect = pygame.Rect(list_x + int(10 * s), row_y + int(15 * s), int(30 * s), int(30 * s))
+                    if checkbox_rect.collidepoint(mouse_pos):
+                        # Toggle enabled state
+                        new_state = not mod_info['_enabled']
+                        self.mod_manager.set_mod_enabled(mod_folder, new_state)
+                        return
+
+                    # Check up arrow area
+                    arrow_x = list_x + list_width - int(80 * s)
+                    up_rect = pygame.Rect(arrow_x, row_y + int(5 * s), int(35 * s), int(25 * s))
+                    if up_rect.collidepoint(mouse_pos) and i > 0:
+                        self.mod_manager.move_mod_up(mod_folder)
+                        return
+
+                    # Check down arrow area
+                    down_rect = pygame.Rect(arrow_x + int(40 * s), row_y + int(5 * s), int(35 * s), int(25 * s))
+                    if down_rect.collidepoint(mouse_pos) and i < len(mods_info) - 1:
+                        self.mod_manager.move_mod_down(mod_folder)
+                        return
+
+                    # Select the mod
+                    self.selected_mod_index = i
+                    return
 
     def _handle_lobby_input(self, mouse_pos: Tuple[int, int], clicked: bool):
         """Handle multiplayer lobby input."""
@@ -2029,6 +2117,8 @@ class Game:
             self._draw_how_to_play()
         elif self.state == GameState.KEYBINDS:
             self._draw_keybinds()
+        elif self.state == GameState.MODS:
+            self._draw_mods_menu()
 
         pygame.display.flip()
 
@@ -2307,6 +2397,126 @@ class Game:
 
         # Back button
         self.how_to_play_back_button.draw(self.screen)
+
+    def _draw_mods_menu(self):
+        """Draw mods management menu."""
+        self.screen.fill(DARK_GRAY)
+        s = constants.get_scale()
+
+        # Title
+        title = self.large_font.render("Mod Manager", True, GOLD)
+        title_rect = title.get_rect(center=(constants.SCREEN_WIDTH // 2, int(50 * s)))
+        self.screen.blit(title, title_rect)
+
+        # Subtitle
+        subtitle = self.font.render("Enable/disable mods and set load order (later mods override earlier)", True, LIGHT_GRAY)
+        subtitle_rect = subtitle.get_rect(center=(constants.SCREEN_WIDTH // 2, int(85 * s)))
+        self.screen.blit(subtitle, subtitle_rect)
+
+        # Get all mods info
+        mods_info = self.mod_manager.get_all_mods_info()
+
+        # Mod list area
+        list_x = constants.SCREEN_WIDTH // 2 - int(300 * s)
+        list_y = int(120 * s)
+        row_height = int(60 * s)
+        list_width = int(600 * s)
+        max_visible = 6
+
+        if not mods_info:
+            # No mods message
+            no_mods_text = self.font.render("No mods found in the 'mods' folder", True, GRAY)
+            no_mods_rect = no_mods_text.get_rect(center=(constants.SCREEN_WIDTH // 2, int(250 * s)))
+            self.screen.blit(no_mods_text, no_mods_rect)
+
+            hint_text = self.font.render("Create a folder with a mod.json file to add mods", True, GRAY)
+            hint_rect = hint_text.get_rect(center=(constants.SCREEN_WIDTH // 2, int(280 * s)))
+            self.screen.blit(hint_text, hint_rect)
+        else:
+            # Draw visible mods
+            for i, mod_info in enumerate(mods_info):
+                if i < self.mod_scroll_offset or i >= self.mod_scroll_offset + max_visible:
+                    continue
+
+                display_i = i - self.mod_scroll_offset
+                row_y = list_y + display_i * row_height
+
+                # Row background
+                row_rect = pygame.Rect(list_x, row_y, list_width, row_height - int(5 * s))
+                bg_color = (60, 60, 70) if i == self.selected_mod_index else (50, 50, 60)
+                if not mod_info['_enabled']:
+                    bg_color = (40, 40, 45)
+                pygame.draw.rect(self.screen, bg_color, row_rect)
+                pygame.draw.rect(self.screen, BLACK, row_rect, 2)
+
+                # Checkbox for enable/disable
+                checkbox_x = list_x + int(10 * s)
+                checkbox_y = row_y + int(15 * s)
+                checkbox_size = int(30 * s)
+                checkbox_rect = pygame.Rect(checkbox_x, checkbox_y, checkbox_size, checkbox_size)
+                pygame.draw.rect(self.screen, WHITE, checkbox_rect, 2)
+                if mod_info['_enabled']:
+                    # Draw checkmark
+                    inner = checkbox_rect.inflate(-int(8 * s), -int(8 * s))
+                    pygame.draw.rect(self.screen, GREEN, inner)
+
+                # Mod name and version
+                name = mod_info.get('name', mod_info['_folder'])
+                version = mod_info.get('version', '?')
+                name_text = self.font.render(f"{name} v{version}", True, WHITE if mod_info['_enabled'] else GRAY)
+                self.screen.blit(name_text, (list_x + int(50 * s), row_y + int(8 * s)))
+
+                # Description
+                desc = mod_info.get('description', 'No description')
+                if len(desc) > 60:
+                    desc = desc[:57] + "..."
+                desc_text = self.font.render(desc, True, LIGHT_GRAY if mod_info['_enabled'] else DARK_GRAY)
+                self.screen.blit(desc_text, (list_x + int(50 * s), row_y + int(32 * s)))
+
+                # Load order number
+                order_text = self.font.render(f"#{i + 1}", True, LIGHT_GRAY)
+                self.screen.blit(order_text, (list_x + list_width - int(110 * s), row_y + int(18 * s)))
+
+                # Up/Down arrows for reordering
+                arrow_x = list_x + list_width - int(80 * s)
+                if i > 0:
+                    up_rect = pygame.Rect(arrow_x, row_y + int(5 * s), int(35 * s), int(25 * s))
+                    pygame.draw.rect(self.screen, GRAY, up_rect)
+                    pygame.draw.rect(self.screen, BLACK, up_rect, 1)
+                    up_text = self.font.render("▲", True, WHITE)
+                    up_text_rect = up_text.get_rect(center=up_rect.center)
+                    self.screen.blit(up_text, up_text_rect)
+
+                if i < len(mods_info) - 1:
+                    down_rect = pygame.Rect(arrow_x + int(40 * s), row_y + int(5 * s), int(35 * s), int(25 * s))
+                    pygame.draw.rect(self.screen, GRAY, down_rect)
+                    pygame.draw.rect(self.screen, BLACK, down_rect, 1)
+                    down_text = self.font.render("▼", True, WHITE)
+                    down_text_rect = down_text.get_rect(center=down_rect.center)
+                    self.screen.blit(down_text, down_text_rect)
+
+            # Scroll indicators if needed
+            if self.mod_scroll_offset > 0:
+                scroll_up = self.font.render("▲ Scroll up", True, LIGHT_GRAY)
+                self.screen.blit(scroll_up, (list_x, list_y - int(20 * s)))
+
+            if self.mod_scroll_offset + max_visible < len(mods_info):
+                scroll_down = self.font.render("▼ Scroll down", True, LIGHT_GRAY)
+                self.screen.blit(scroll_down, (list_x, list_y + max_visible * row_height + int(5 * s)))
+
+        # Info text
+        info_y = constants.SCREEN_HEIGHT - int(120 * s)
+        info_text = self.font.render("Click checkbox to enable/disable. Use arrows to change load order.", True, LIGHT_GRAY)
+        info_rect = info_text.get_rect(center=(constants.SCREEN_WIDTH // 2, info_y))
+        self.screen.blit(info_text, info_rect)
+
+        info_text2 = self.font.render("Click 'Apply' to reload mods with changes.", True, LIGHT_GRAY)
+        info_rect2 = info_text2.get_rect(center=(constants.SCREEN_WIDTH // 2, info_y + int(25 * s)))
+        self.screen.blit(info_text2, info_rect2)
+
+        # Buttons
+        self.mods_apply_button.draw(self.screen)
+        self.mods_back_button.draw(self.screen)
 
     def _draw_game(self):
         """Draw the game world."""

@@ -254,6 +254,7 @@ class GameState(Enum):
     DIFFICULTY_SELECT = auto()
     HOW_TO_PLAY = auto()
     KEYBINDS = auto()
+    MODS = auto()
 
 
 class UnitType(Enum):

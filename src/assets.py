@@ -125,6 +125,29 @@ class ModManager:
         self.unit_cost_overrides: Dict[str, dict] = {}
         self.building_stat_overrides: Dict[str, dict] = {}
         self.building_cost_overrides: Dict[str, dict] = {}
+        # Mod configuration: which mods are enabled and their load order
+        self.mod_config: Dict[str, dict] = {}  # mod_folder -> {enabled: bool, order: int}
+        self.config_path = os.path.join(mods_directory, "mod_config.json")
+        self._load_config()
+
+    def _load_config(self):
+        """Load mod configuration from file."""
+        if os.path.exists(self.config_path):
+            try:
+                with open(self.config_path, 'r') as f:
+                    self.mod_config = json.load(f)
+            except Exception as e:
+                print(f"Failed to load mod config: {e}")
+                self.mod_config = {}
+
+    def save_config(self):
+        """Save mod configuration to file."""
+        try:
+            os.makedirs(self.mods_directory, exist_ok=True)
+            with open(self.config_path, 'w') as f:
+                json.dump(self.mod_config, f, indent=2)
+        except Exception as e:
+            print(f"Failed to save mod config: {e}")
 
     def discover_mods(self) -> List[str]:
         """Discover available mods in the mods directory."""
@@ -169,9 +192,102 @@ class ModManager:
             return False
 
     def load_all_mods(self):
-        """Load all discovered mods."""
-        for mod_name in self.discover_mods():
-            self.load_mod(mod_name)
+        """Load all enabled mods in order."""
+        # Get all discovered mods
+        discovered = self.discover_mods()
+
+        # Initialize config for any new mods
+        for mod_name in discovered:
+            if mod_name not in self.mod_config:
+                # New mod - enable by default, add to end of order
+                max_order = max((c.get('order', 0) for c in self.mod_config.values()), default=-1)
+                self.mod_config[mod_name] = {'enabled': True, 'order': max_order + 1}
+
+        # Remove config for mods that no longer exist
+        self.mod_config = {k: v for k, v in self.mod_config.items() if k in discovered}
+
+        # Sort mods by load order and load enabled ones
+        sorted_mods = sorted(
+            [(name, cfg) for name, cfg in self.mod_config.items()],
+            key=lambda x: x[1].get('order', 0)
+        )
+
+        for mod_name, cfg in sorted_mods:
+            if cfg.get('enabled', True):
+                self.load_mod(mod_name)
+
+        self.save_config()
+
+    def get_all_mods_info(self) -> List[dict]:
+        """Get info for all discovered mods (enabled or not) in load order."""
+        discovered = self.discover_mods()
+        mods_info = []
+
+        for mod_name in discovered:
+            mod_path = os.path.join(self.mods_directory, mod_name)
+            mod_json_path = os.path.join(mod_path, "mod.json")
+
+            try:
+                with open(mod_json_path, 'r') as f:
+                    info = json.load(f)
+                info['_folder'] = mod_name
+                info['_enabled'] = self.mod_config.get(mod_name, {}).get('enabled', True)
+                info['_order'] = self.mod_config.get(mod_name, {}).get('order', 0)
+                mods_info.append(info)
+            except Exception:
+                continue
+
+        # Sort by load order
+        mods_info.sort(key=lambda x: x.get('_order', 0))
+        return mods_info
+
+    def set_mod_enabled(self, mod_folder: str, enabled: bool):
+        """Enable or disable a mod."""
+        if mod_folder not in self.mod_config:
+            self.mod_config[mod_folder] = {'enabled': enabled, 'order': 0}
+        else:
+            self.mod_config[mod_folder]['enabled'] = enabled
+        self.save_config()
+
+    def move_mod_up(self, mod_folder: str):
+        """Move a mod up in load order (lower order number = loads first)."""
+        mods_info = self.get_all_mods_info()
+        for i, info in enumerate(mods_info):
+            if info['_folder'] == mod_folder and i > 0:
+                # Swap with previous mod
+                prev_folder = mods_info[i - 1]['_folder']
+                prev_order = self.mod_config[prev_folder]['order']
+                curr_order = self.mod_config[mod_folder]['order']
+                self.mod_config[mod_folder]['order'] = prev_order
+                self.mod_config[prev_folder]['order'] = curr_order
+                self.save_config()
+                break
+
+    def move_mod_down(self, mod_folder: str):
+        """Move a mod down in load order (higher order number = loads later)."""
+        mods_info = self.get_all_mods_info()
+        for i, info in enumerate(mods_info):
+            if info['_folder'] == mod_folder and i < len(mods_info) - 1:
+                # Swap with next mod
+                next_folder = mods_info[i + 1]['_folder']
+                next_order = self.mod_config[next_folder]['order']
+                curr_order = self.mod_config[mod_folder]['order']
+                self.mod_config[mod_folder]['order'] = next_order
+                self.mod_config[next_folder]['order'] = curr_order
+                self.save_config()
+                break
+
+    def reload_mods(self):
+        """Clear and reload all mods based on current config."""
+        # Clear current overrides
+        self.loaded_mods.clear()
+        self.asset_overrides.clear()
+        self.unit_stat_overrides.clear()
+        self.unit_cost_overrides.clear()
+        self.building_stat_overrides.clear()
+        self.building_cost_overrides.clear()
+        # Reload
+        self.load_all_mods()
 
     def _load_asset_overrides(self, mod_path: str, mod_config: dict):
         """Load asset overrides from a mod."""
