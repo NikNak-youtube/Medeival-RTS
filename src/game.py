@@ -15,7 +15,8 @@ from .constants import (
     WHITE, BLACK, RED, GREEN, GOLD, GRAY, DARK_GRAY, LIGHT_GRAY, BROWN, YELLOW,
     GameState, UnitType, BuildingType, Team, Difficulty, DIFFICULTY_SETTINGS,
     UNIT_COSTS, BUILDING_COSTS, RESOURCE_TICK_INTERVAL, BUILD_TIMES, DECONSTRUCT_REFUND,
-    FOOD_CONSUMPTION_INTERVAL, FOOD_PER_UNIT, STARVATION_DAMAGE, WORKER_RANGE, TOWER_STATS
+    FOOD_CONSUMPTION_INTERVAL, FOOD_PER_UNIT, STARVATION_DAMAGE, WORKER_RANGE, TOWER_STATS,
+    RAID_SETTINGS, RAID_WAVE_COMPOSITION
 )
 from .assets import AssetManager, ModManager, get_unit_asset_name, get_building_asset_name
 from .entities import Unit, Building, BloodEffect, Resources, Projectile
@@ -142,6 +143,13 @@ class Game:
         self.rebinding_key = None  # Currently rebinding this key action
         self.keybind_scroll_offset = 0  # For scrolling keybind list
 
+        # Raid mode state
+        self.raid_mode = False
+        self.raid_wave = 0
+        self.raid_timer = 0.0
+        self.raid_peace_period = True  # True during peace, False during wave
+        self.raid_enemies_alive = 0
+
         # Initialize UI
         self._init_ui()
 
@@ -170,13 +178,14 @@ class Game:
         btn_w, btn_h = int(300 * s), int(50 * s)
         btn_x = w // 2 - btn_w // 2
         self.menu_buttons = [
-            Button(btn_x, int(200 * s), btn_w, btn_h, "Play vs AI", font_size=btn_font),
-            Button(btn_x, int(260 * s), btn_w, btn_h, "Host Multiplayer", font_size=btn_font),
-            Button(btn_x, int(320 * s), btn_w, btn_h, "Join Multiplayer", font_size=btn_font),
-            Button(btn_x, int(380 * s), btn_w, btn_h, "How to Play", font_size=btn_font),
-            Button(btn_x, int(440 * s), btn_w, btn_h, "Settings", font_size=btn_font),
-            Button(btn_x, int(500 * s), btn_w, btn_h, "Mods", font_size=btn_font),
-            Button(btn_x, int(560 * s), btn_w, btn_h, "Quit", font_size=btn_font)
+            Button(btn_x, int(180 * s), btn_w, btn_h, "Play vs AI", font_size=btn_font),
+            Button(btn_x, int(235 * s), btn_w, btn_h, "Raid Mode", font_size=btn_font),
+            Button(btn_x, int(290 * s), btn_w, btn_h, "Host Multiplayer", font_size=btn_font),
+            Button(btn_x, int(345 * s), btn_w, btn_h, "Join Multiplayer", font_size=btn_font),
+            Button(btn_x, int(400 * s), btn_w, btn_h, "How to Play", font_size=btn_font),
+            Button(btn_x, int(455 * s), btn_w, btn_h, "Settings", font_size=btn_font),
+            Button(btn_x, int(510 * s), btn_w, btn_h, "Mods", font_size=btn_font),
+            Button(btn_x, int(565 * s), btn_w, btn_h, "Quit", font_size=btn_font)
         ]
 
         # Mods menu buttons
@@ -374,6 +383,138 @@ class Game:
             self.camera.y = MAP_HEIGHT - self.camera.height
 
         self.state = GameState.PLAYING
+        self.raid_mode = False
+
+    def init_raid_mode(self):
+        """Initialize Raid mode - wave-based survival."""
+        # Clear existing objects
+        self.units.clear()
+        self.buildings.clear()
+        self.blood_effects.clear()
+        self.projectiles.clear()
+        self.selected_units.clear()
+        self.selected_building = None
+        self.placing_building = None
+
+        # Reset resources with raid starting values
+        self.player_resources = Resources(
+            gold=RAID_SETTINGS['starting_gold'],
+            food=RAID_SETTINGS['starting_food'],
+            wood=RAID_SETTINGS['starting_wood']
+        )
+        self.enemy_resources = Resources()
+
+        # Reset healing state
+        self.player_healing_enabled = False
+        self.enemy_healing_enabled = False
+        self.heal_timer = 0.0
+
+        # Reset UID counters
+        self._uid_counter = 0
+        self._enemy_uid_counter = 0
+
+        # No AI bot in raid mode - we spawn enemies manually
+        self.ai_bot = None
+        self.is_multiplayer = False
+
+        # Raid mode state
+        self.raid_mode = True
+        self.raid_wave = 0
+        self.raid_timer = RAID_SETTINGS['first_wave_delay']
+        self.raid_peace_period = True
+        self.raid_enemies_alive = 0
+
+        # Create player base in center of map
+        self._create_raid_base()
+
+        # Position camera at center
+        self.camera.x = MAP_WIDTH // 2 - self.camera.width // 2
+        self.camera.y = MAP_HEIGHT // 2 - self.camera.height // 2
+
+        self.state = GameState.RAID
+
+    def _create_raid_base(self):
+        """Create player base in center of map for Raid mode."""
+        center_x = MAP_WIDTH // 2
+        center_y = MAP_HEIGHT // 2
+
+        # Castle in center
+        castle = Building(center_x, center_y, BuildingType.CASTLE, Team.PLAYER,
+                         _mod_manager=self.mod_manager)
+        castle.uid = self.next_uid()
+        self.buildings.append(castle)
+
+        # Starting peasants around the castle
+        for i in range(RAID_SETTINGS['starting_peasants']):
+            angle = (2 * math.pi * i) / RAID_SETTINGS['starting_peasants']
+            px = center_x + math.cos(angle) * 120
+            py = center_y + math.sin(angle) * 120
+            peasant = Unit(px, py, UnitType.PEASANT, Team.PLAYER,
+                          _mod_manager=self.mod_manager)
+            peasant.uid = self.next_uid()
+            self.units.append(peasant)
+
+        # Starting knights
+        for i in range(RAID_SETTINGS['starting_knights']):
+            angle = (2 * math.pi * i) / RAID_SETTINGS['starting_knights'] + math.pi / 4
+            kx = center_x + math.cos(angle) * 80
+            ky = center_y + math.sin(angle) * 80
+            knight = Unit(kx, ky, UnitType.KNIGHT, Team.PLAYER,
+                         _mod_manager=self.mod_manager)
+            knight.uid = self.next_uid()
+            self.units.append(knight)
+
+    def _spawn_raid_wave(self):
+        """Spawn a wave of enemies from the edges of the map."""
+        self.raid_wave += 1
+        self.raid_peace_period = False
+
+        # Calculate number of enemies
+        num_enemies = RAID_SETTINGS['base_enemies_per_wave'] + \
+                     (self.raid_wave - 1) * RAID_SETTINGS['enemies_increase_per_wave']
+
+        # Get wave composition (use highest defined wave if current wave is higher)
+        wave_key = min(self.raid_wave, max(RAID_WAVE_COMPOSITION.keys()))
+        composition = RAID_WAVE_COMPOSITION[wave_key]
+
+        # Spawn enemies from all 4 edges
+        spawn_distance = RAID_SETTINGS['spawn_distance']
+        center_x = MAP_WIDTH // 2
+        center_y = MAP_HEIGHT // 2
+
+        for i in range(num_enemies):
+            # Determine unit type based on composition
+            rand = random.random()
+            cumulative = 0
+            unit_type = UnitType.PEASANT
+            for type_name, probability in composition.items():
+                cumulative += probability
+                if rand <= cumulative:
+                    unit_type = UnitType[type_name.upper()]
+                    break
+
+            # Choose random edge (0=top, 1=right, 2=bottom, 3=left)
+            edge = random.randint(0, 3)
+            if edge == 0:  # Top
+                x = random.randint(spawn_distance, MAP_WIDTH - spawn_distance)
+                y = spawn_distance
+            elif edge == 1:  # Right
+                x = MAP_WIDTH - spawn_distance
+                y = random.randint(spawn_distance, MAP_HEIGHT - spawn_distance)
+            elif edge == 2:  # Bottom
+                x = random.randint(spawn_distance, MAP_WIDTH - spawn_distance)
+                y = MAP_HEIGHT - spawn_distance
+            else:  # Left
+                x = spawn_distance
+                y = random.randint(spawn_distance, MAP_HEIGHT - spawn_distance)
+
+            # Create enemy unit
+            enemy = Unit(x, y, unit_type, Team.ENEMY, _mod_manager=self.mod_manager)
+            enemy.uid = self.next_uid(for_enemy=True)
+            # Set attack-move target to center (player base)
+            enemy.set_attack_move_target(center_x, center_y)
+            self.units.append(enemy)
+            self.raid_enemies_alive += 1
 
     def _create_player_base(self, mirrored: bool = False):
         """Create player starting base.
@@ -477,7 +618,7 @@ class Game:
             if event.type == pygame.MOUSEBUTTONDOWN:
                 if event.button == 1:
                     mouse_clicked = True
-                    if self.state == GameState.PLAYING:
+                    if self.state in [GameState.PLAYING, GameState.RAID]:
                         self.selection_start = mouse_pos
                 elif event.button == 3:
                     right_clicked = True
@@ -498,6 +639,11 @@ class Game:
             if event.type == pygame.KEYDOWN:
                 if self.state == GameState.PLAYING:
                     self._handle_game_keys(event)
+                elif self.state == GameState.RAID:
+                    self._handle_game_keys(event)
+                    # ESC to quit raid mode
+                    if event.key == pygame.K_ESCAPE:
+                        self.state = GameState.MAIN_MENU
                 elif self.state == GameState.GAME_OVER:
                     if event.key == pygame.K_ESCAPE:
                         self.state = GameState.MAIN_MENU
@@ -535,6 +681,8 @@ class Game:
             self._handle_keybinds_input(mouse_pos, mouse_clicked)
         elif self.state == GameState.MODS:
             self._handle_mods_input(mouse_pos, mouse_clicked)
+        elif self.state == GameState.RAID:
+            self._handle_game_input(mouse_pos, mouse_clicked, right_clicked)
 
     def _handle_menu_input(self, mouse_pos: Tuple[int, int], clicked: bool):
         """Handle main menu input."""
@@ -546,19 +694,22 @@ class Game:
                 # Go to difficulty selection before starting game
                 self.state = GameState.DIFFICULTY_SELECT
             elif self.menu_buttons[1].is_clicked(mouse_pos, True):
+                # Start Raid mode
+                self.init_raid_mode()
+            elif self.menu_buttons[2].is_clicked(mouse_pos, True):
                 if self.network.host_game():
                     self.state = GameState.WAITING_FOR_ACCEPT
-            elif self.menu_buttons[2].is_clicked(mouse_pos, True):
-                self.state = GameState.MULTIPLAYER_LOBBY
             elif self.menu_buttons[3].is_clicked(mouse_pos, True):
-                self.state = GameState.HOW_TO_PLAY
+                self.state = GameState.MULTIPLAYER_LOBBY
             elif self.menu_buttons[4].is_clicked(mouse_pos, True):
-                self.state = GameState.SETTINGS
+                self.state = GameState.HOW_TO_PLAY
             elif self.menu_buttons[5].is_clicked(mouse_pos, True):
+                self.state = GameState.SETTINGS
+            elif self.menu_buttons[6].is_clicked(mouse_pos, True):
                 self.state = GameState.MODS
                 self.mod_scroll_offset = 0
                 self.selected_mod_index = -1
-            elif self.menu_buttons[6].is_clicked(mouse_pos, True):
+            elif self.menu_buttons[7].is_clicked(mouse_pos, True):
                 self.running = False
 
     def _handle_difficulty_input(self, mouse_pos: Tuple[int, int], clicked: bool):
@@ -1364,6 +1515,8 @@ class Game:
 
         if self.state == GameState.PLAYING:
             self._update_game()
+        elif self.state == GameState.RAID:
+            self._update_raid()
         elif self.state == GameState.CONNECTING:
             result = self.network.wait_for_accept()
             if result is True:
@@ -1419,6 +1572,72 @@ class Game:
 
         # Check win/lose
         self._check_game_over()
+
+    def _update_raid(self):
+        """Update Raid mode game logic."""
+        keys = pygame.key.get_pressed()
+        mouse_pos = pygame.mouse.get_pos()
+        self.camera.update(keys, self.dt, mouse_pos)
+
+        # Update raid timer
+        if self.raid_peace_period:
+            # Peace period - countdown to next wave
+            self.raid_timer -= self.dt
+            if self.raid_timer <= 0:
+                self._spawn_raid_wave()
+        else:
+            # Wave in progress - check if all enemies are dead
+            self.raid_enemies_alive = sum(1 for u in self.units if u.team == Team.ENEMY and u.is_alive())
+            if self.raid_enemies_alive == 0:
+                # Wave complete! Start peace period
+                self.raid_peace_period = True
+                self.raid_timer = RAID_SETTINGS['peace_duration']
+
+        # Update units
+        self._update_units()
+
+        # Update unit collisions
+        self._update_unit_collisions()
+
+        # Update workers
+        self._update_workers()
+
+        # Update construction
+        self._update_construction()
+
+        # Update tower attacks
+        self._update_tower_attacks()
+
+        # Update projectiles
+        self._update_projectiles()
+
+        # Update effects
+        self._update_effects()
+
+        # Update resources
+        self._update_resources()
+
+        # Update food consumption
+        self._update_food_consumption()
+
+        # Update unit healing
+        self._update_healing()
+
+        # Check if player lost (castle destroyed)
+        self._check_raid_game_over()
+
+    def _check_raid_game_over(self):
+        """Check if player lost in Raid mode."""
+        # Player loses if their castle is destroyed
+        player_castle = None
+        for building in self.buildings:
+            if building.team == Team.PLAYER and building.building_type == BuildingType.CASTLE:
+                player_castle = building
+                break
+
+        if player_castle is None or player_castle.is_destroyed():
+            self.state = GameState.GAME_OVER
+            self.winner = Team.ENEMY
 
     def _update_units(self):
         """Update all units."""
@@ -2119,6 +2338,9 @@ class Game:
             self._draw_keybinds()
         elif self.state == GameState.MODS:
             self._draw_mods_menu()
+        elif self.state == GameState.RAID:
+            self._draw_game()
+            self._draw_raid_hud()
 
         pygame.display.flip()
 
@@ -3040,6 +3262,42 @@ class Game:
             Team.PLAYER,
             Team.ENEMY
         )
+
+    def _draw_raid_hud(self):
+        """Draw Raid mode specific HUD elements."""
+        s = constants.get_scale()
+
+        # Wave and timer display at top center
+        panel_w = int(300 * s)
+        panel_h = int(60 * s)
+        panel_x = constants.SCREEN_WIDTH // 2 - panel_w // 2
+        panel_y = int(10 * s)
+
+        # Panel background
+        panel_rect = pygame.Rect(panel_x, panel_y, panel_w, panel_h)
+        pygame.draw.rect(self.screen, DARK_GRAY, panel_rect)
+        pygame.draw.rect(self.screen, GOLD, panel_rect, 2)
+
+        # Wave number
+        wave_text = self.large_font.render(f"Wave {self.raid_wave}", True, GOLD)
+        wave_rect = wave_text.get_rect(centerx=panel_x + panel_w // 2, top=panel_y + int(5 * s))
+        self.screen.blit(wave_text, wave_rect)
+
+        # Timer or enemy count
+        if self.raid_peace_period:
+            timer_secs = max(0, int(self.raid_timer))
+            if self.raid_wave == 0:
+                status_text = f"First wave in {timer_secs}s"
+            else:
+                status_text = f"Next wave in {timer_secs}s"
+            color = GREEN
+        else:
+            status_text = f"Enemies remaining: {self.raid_enemies_alive}"
+            color = RED
+
+        status_surf = self.font.render(status_text, True, color)
+        status_rect = status_surf.get_rect(centerx=panel_x + panel_w // 2, top=panel_y + int(35 * s))
+        self.screen.blit(status_surf, status_rect)
 
     def _draw_game_over(self):
         """Draw game over overlay."""

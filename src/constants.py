@@ -255,6 +255,7 @@ class GameState(Enum):
     HOW_TO_PLAY = auto()
     KEYBINDS = auto()
     MODS = auto()
+    RAID = auto()  # Wave-based survival mode
 
 
 class UnitType(Enum):
@@ -274,3 +275,33 @@ class BuildingType(Enum):
 class Team(Enum):
     PLAYER = auto()
     ENEMY = auto()
+
+
+# =============================================================================
+# RAID MODE SETTINGS
+# =============================================================================
+
+RAID_SETTINGS = {
+    'peace_duration': 60.0,  # 60 seconds between waves
+    'first_wave_delay': 30.0,  # 30 seconds before first wave
+    'base_enemies_per_wave': 5,  # Starting number of enemies
+    'enemies_increase_per_wave': 3,  # Additional enemies each wave
+    'spawn_distance': 100,  # Distance from map edge to spawn
+    'starting_gold': 500,
+    'starting_food': 300,
+    'starting_wood': 400,
+    'starting_peasants': 5,
+    'starting_knights': 2,
+}
+
+# Wave composition - what percentage of each unit type per wave
+# Later waves introduce stronger units
+RAID_WAVE_COMPOSITION = {
+    1: {'peasant': 1.0},  # Wave 1: Only peasants
+    2: {'peasant': 0.7, 'knight': 0.3},  # Wave 2: Mix
+    3: {'peasant': 0.5, 'knight': 0.5},
+    4: {'peasant': 0.3, 'knight': 0.5, 'cavalry': 0.2},
+    5: {'peasant': 0.2, 'knight': 0.4, 'cavalry': 0.4},
+    6: {'knight': 0.4, 'cavalry': 0.4, 'cannon': 0.2},
+    # Wave 7+ uses wave 6 composition but with more enemies
+}
