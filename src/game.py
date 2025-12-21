@@ -16,7 +16,7 @@ from .constants import (
     GameState, UnitType, BuildingType, Team, Difficulty, DIFFICULTY_SETTINGS,
     UNIT_COSTS, BUILDING_COSTS, RESOURCE_TICK_INTERVAL, BUILD_TIMES, DECONSTRUCT_REFUND,
     FOOD_CONSUMPTION_INTERVAL, FOOD_PER_UNIT, STARVATION_DAMAGE, WORKER_RANGE, TOWER_STATS,
-    RAID_SETTINGS, RAID_WAVE_COMPOSITION
+    RaidDifficulty, RAID_DIFFICULTY_SETTINGS, RAID_WAVE_COMPOSITION
 )
 from .assets import AssetManager, ModManager, get_unit_asset_name, get_building_asset_name
 from .entities import Unit, Building, BloodEffect, Resources, Projectile
@@ -149,6 +149,7 @@ class Game:
         self.raid_timer = 0.0
         self.raid_peace_period = True  # True during peace, False during wave
         self.raid_enemies_alive = 0
+        self.raid_difficulty = RaidDifficulty.NORMAL
 
         # Initialize UI
         self._init_ui()
@@ -209,6 +210,14 @@ class Game:
             Button(diff_x, int(470 * s), diff_w, diff_h, "Brutal", font_size=btn_font),
         ]
         self.difficulty_back_button = Button(diff_x, int(560 * s), diff_w, diff_h, "Back", font_size=btn_font)
+
+        # Raid difficulty selection buttons
+        self.raid_difficulty_buttons = [
+            Button(diff_x, int(200 * s), diff_w, diff_h, "Easy", font_size=btn_font),
+            Button(diff_x, int(290 * s), diff_w, diff_h, "Normal", font_size=btn_font),
+            Button(diff_x, int(380 * s), diff_w, diff_h, "Hard", font_size=btn_font),
+        ]
+        self.raid_difficulty_back_button = Button(diff_x, int(470 * s), diff_w, diff_h, "Back", font_size=btn_font)
 
         # Settings buttons
         set_w, set_h = int(300 * s), int(45 * s)
@@ -396,11 +405,14 @@ class Game:
         self.selected_building = None
         self.placing_building = None
 
+        # Get settings for current raid difficulty
+        raid_settings = RAID_DIFFICULTY_SETTINGS[self.raid_difficulty]
+
         # Reset resources with raid starting values
         self.player_resources = Resources(
-            gold=RAID_SETTINGS['starting_gold'],
-            food=RAID_SETTINGS['starting_food'],
-            wood=RAID_SETTINGS['starting_wood']
+            gold=raid_settings['starting_gold'],
+            food=raid_settings['starting_food'],
+            wood=raid_settings['starting_wood']
         )
         self.enemy_resources = Resources()
 
@@ -420,7 +432,7 @@ class Game:
         # Raid mode state
         self.raid_mode = True
         self.raid_wave = 0
-        self.raid_timer = RAID_SETTINGS['first_wave_delay']
+        self.raid_timer = raid_settings['first_wave_delay']
         self.raid_peace_period = True
         self.raid_enemies_alive = 0
 
@@ -435,6 +447,7 @@ class Game:
 
     def _create_raid_base(self):
         """Create player base in center of map for Raid mode."""
+        raid_settings = RAID_DIFFICULTY_SETTINGS[self.raid_difficulty]
         center_x = MAP_WIDTH // 2
         center_y = MAP_HEIGHT // 2
 
@@ -445,8 +458,9 @@ class Game:
         self.buildings.append(castle)
 
         # Starting peasants around the castle
-        for i in range(RAID_SETTINGS['starting_peasants']):
-            angle = (2 * math.pi * i) / RAID_SETTINGS['starting_peasants']
+        num_peasants = raid_settings['starting_peasants']
+        for i in range(num_peasants):
+            angle = (2 * math.pi * i) / max(1, num_peasants)
             px = center_x + math.cos(angle) * 120
             py = center_y + math.sin(angle) * 120
             peasant = Unit(px, py, UnitType.PEASANT, Team.PLAYER,
@@ -455,8 +469,9 @@ class Game:
             self.units.append(peasant)
 
         # Starting knights
-        for i in range(RAID_SETTINGS['starting_knights']):
-            angle = (2 * math.pi * i) / RAID_SETTINGS['starting_knights'] + math.pi / 4
+        num_knights = raid_settings['starting_knights']
+        for i in range(num_knights):
+            angle = (2 * math.pi * i) / max(1, num_knights) + math.pi / 4
             kx = center_x + math.cos(angle) * 80
             ky = center_y + math.sin(angle) * 80
             knight = Unit(kx, ky, UnitType.KNIGHT, Team.PLAYER,
@@ -466,19 +481,21 @@ class Game:
 
     def _spawn_raid_wave(self):
         """Spawn a wave of enemies from the edges of the map."""
+        raid_settings = RAID_DIFFICULTY_SETTINGS[self.raid_difficulty]
         self.raid_wave += 1
         self.raid_peace_period = False
 
         # Calculate number of enemies
-        num_enemies = RAID_SETTINGS['base_enemies_per_wave'] + \
-                     (self.raid_wave - 1) * RAID_SETTINGS['enemies_increase_per_wave']
+        num_enemies = raid_settings['base_enemies_per_wave'] + \
+                     (self.raid_wave - 1) * raid_settings['enemies_increase_per_wave']
 
-        # Get wave composition (use highest defined wave if current wave is higher)
-        wave_key = min(self.raid_wave, max(RAID_WAVE_COMPOSITION.keys()))
-        composition = RAID_WAVE_COMPOSITION[wave_key]
+        # Get wave composition for this difficulty (use highest defined wave if current wave is higher)
+        difficulty_composition = RAID_WAVE_COMPOSITION[self.raid_difficulty]
+        wave_key = min(self.raid_wave, max(difficulty_composition.keys()))
+        composition = difficulty_composition[wave_key]
 
         # Spawn enemies from all 4 edges
-        spawn_distance = RAID_SETTINGS['spawn_distance']
+        spawn_distance = raid_settings['spawn_distance']
         center_x = MAP_WIDTH // 2
         center_y = MAP_HEIGHT // 2
 
@@ -683,6 +700,8 @@ class Game:
             self._handle_mods_input(mouse_pos, mouse_clicked)
         elif self.state == GameState.RAID:
             self._handle_game_input(mouse_pos, mouse_clicked, right_clicked)
+        elif self.state == GameState.RAID_DIFFICULTY_SELECT:
+            self._handle_raid_difficulty_input(mouse_pos, mouse_clicked)
 
     def _handle_menu_input(self, mouse_pos: Tuple[int, int], clicked: bool):
         """Handle main menu input."""
@@ -694,8 +713,8 @@ class Game:
                 # Go to difficulty selection before starting game
                 self.state = GameState.DIFFICULTY_SELECT
             elif self.menu_buttons[1].is_clicked(mouse_pos, True):
-                # Start Raid mode
-                self.init_raid_mode()
+                # Go to raid difficulty selection
+                self.state = GameState.RAID_DIFFICULTY_SELECT
             elif self.menu_buttons[2].is_clicked(mouse_pos, True):
                 if self.network.host_game():
                     self.state = GameState.WAITING_FOR_ACCEPT
@@ -727,6 +746,23 @@ class Game:
                     return
 
             if self.difficulty_back_button.is_clicked(mouse_pos, True):
+                self.state = GameState.MAIN_MENU
+
+    def _handle_raid_difficulty_input(self, mouse_pos: Tuple[int, int], clicked: bool):
+        """Handle raid difficulty selection input."""
+        for button in self.raid_difficulty_buttons:
+            button.update(mouse_pos)
+        self.raid_difficulty_back_button.update(mouse_pos)
+
+        if clicked:
+            difficulties = [RaidDifficulty.EASY, RaidDifficulty.NORMAL, RaidDifficulty.HARD]
+            for i, button in enumerate(self.raid_difficulty_buttons):
+                if button.is_clicked(mouse_pos, True):
+                    self.raid_difficulty = difficulties[i]
+                    self.init_raid_mode()
+                    return
+
+            if self.raid_difficulty_back_button.is_clicked(mouse_pos, True):
                 self.state = GameState.MAIN_MENU
 
     def _handle_settings_input(self, mouse_pos: Tuple[int, int], clicked: bool):
@@ -1580,6 +1616,7 @@ class Game:
         self.camera.update(keys, self.dt, mouse_pos)
 
         # Update raid timer
+        raid_settings = RAID_DIFFICULTY_SETTINGS[self.raid_difficulty]
         if self.raid_peace_period:
             # Peace period - countdown to next wave
             self.raid_timer -= self.dt
@@ -1591,7 +1628,7 @@ class Game:
             if self.raid_enemies_alive == 0:
                 # Wave complete! Start peace period
                 self.raid_peace_period = True
-                self.raid_timer = RAID_SETTINGS['peace_duration']
+                self.raid_timer = raid_settings['peace_duration']
 
         # Update units
         self._update_units()
@@ -2341,6 +2378,8 @@ class Game:
         elif self.state == GameState.RAID:
             self._draw_game()
             self._draw_raid_hud()
+        elif self.state == GameState.RAID_DIFFICULTY_SELECT:
+            self._draw_raid_difficulty_select()
 
         pygame.display.flip()
 
@@ -2441,6 +2480,36 @@ class Game:
             self.screen.blit(desc, desc_rect)
 
         self.difficulty_back_button.draw(self.screen)
+
+    def _draw_raid_difficulty_select(self):
+        """Draw raid difficulty selection screen."""
+        self.screen.fill(DARK_GRAY)
+
+        # Title
+        title = self.large_font.render("Raid Mode - Select Difficulty", True, WHITE)
+        title_rect = title.get_rect(center=(constants.SCREEN_WIDTH // 2, 100))
+        self.screen.blit(title, title_rect)
+
+        # Subtitle
+        subtitle = self.font.render("Survive waves of enemies attacking your castle", True, LIGHT_GRAY)
+        subtitle_rect = subtitle.get_rect(center=(constants.SCREEN_WIDTH // 2, 140))
+        self.screen.blit(subtitle, subtitle_rect)
+
+        # Difficulty buttons with descriptions
+        descriptions = [
+            "Easy - 4 min prep, 90s between waves, fewer enemies",
+            "Normal - 3 min prep, 60s between waves, balanced",
+            "Hard - 2 min prep, 45s between waves, more enemies"
+        ]
+
+        for i, button in enumerate(self.raid_difficulty_buttons):
+            button.draw(self.screen)
+            # Draw description below each button
+            desc = self.font.render(descriptions[i], True, LIGHT_GRAY)
+            desc_rect = desc.get_rect(center=(constants.SCREEN_WIDTH // 2, button.rect.bottom + 15))
+            self.screen.blit(desc, desc_rect)
+
+        self.raid_difficulty_back_button.draw(self.screen)
 
     def _draw_settings(self):
         """Draw settings menu."""

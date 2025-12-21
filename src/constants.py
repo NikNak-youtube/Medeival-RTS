@@ -256,6 +256,7 @@ class GameState(Enum):
     KEYBINDS = auto()
     MODS = auto()
     RAID = auto()  # Wave-based survival mode
+    RAID_DIFFICULTY_SELECT = auto()  # Raid difficulty selection
 
 
 class UnitType(Enum):
@@ -281,33 +282,90 @@ class Team(Enum):
 # RAID MODE SETTINGS
 # =============================================================================
 
-RAID_SETTINGS = {
-    'peace_duration': 60.0,  # 60 seconds between waves
-    'first_wave_delay': 180.0,  # 3 minutes before first wave
-    'base_enemies_per_wave': 3,  # Starting number of enemies
-    'enemies_increase_per_wave': 2,  # Additional enemies each wave
-    'spawn_distance': 100,  # Distance from map edge to spawn
-    'starting_gold': 500,
-    'starting_food': 300,
-    'starting_wood': 400,
-    'starting_peasants': 5,
-    'starting_knights': 2,
+class RaidDifficulty(Enum):
+    EASY = auto()
+    NORMAL = auto()
+    HARD = auto()
+
+RAID_DIFFICULTY_SETTINGS = {
+    RaidDifficulty.EASY: {
+        'peace_duration': 90.0,  # 90 seconds between waves
+        'first_wave_delay': 240.0,  # 4 minutes before first wave
+        'base_enemies_per_wave': 2,  # Starting number of enemies
+        'enemies_increase_per_wave': 1,  # Additional enemies each wave
+        'spawn_distance': 100,
+        'starting_gold': 600,
+        'starting_food': 400,
+        'starting_wood': 500,
+        'starting_peasants': 6,
+        'starting_knights': 3,
+    },
+    RaidDifficulty.NORMAL: {
+        'peace_duration': 60.0,  # 60 seconds between waves
+        'first_wave_delay': 180.0,  # 3 minutes before first wave
+        'base_enemies_per_wave': 3,  # Starting number of enemies
+        'enemies_increase_per_wave': 2,  # Additional enemies each wave
+        'spawn_distance': 100,
+        'starting_gold': 500,
+        'starting_food': 300,
+        'starting_wood': 400,
+        'starting_peasants': 5,
+        'starting_knights': 2,
+    },
+    RaidDifficulty.HARD: {
+        'peace_duration': 45.0,  # 45 seconds between waves
+        'first_wave_delay': 120.0,  # 2 minutes before first wave
+        'base_enemies_per_wave': 5,  # Starting number of enemies
+        'enemies_increase_per_wave': 3,  # Additional enemies each wave
+        'spawn_distance': 100,
+        'starting_gold': 400,
+        'starting_food': 250,
+        'starting_wood': 300,
+        'starting_peasants': 4,
+        'starting_knights': 1,
+    },
 }
 
-# Wave composition - what percentage of each unit type per wave
-# More gradual progression - stronger units introduced slowly
+# Wave composition per difficulty - what percentage of each unit type per wave
 RAID_WAVE_COMPOSITION = {
-    1: {'peasant': 1.0},  # Wave 1: Only peasants
-    2: {'peasant': 1.0},  # Wave 2: Still peasants
-    3: {'peasant': 0.8, 'knight': 0.2},  # Wave 3: Few knights
-    4: {'peasant': 0.7, 'knight': 0.3},
-    5: {'peasant': 0.6, 'knight': 0.4},
-    6: {'peasant': 0.5, 'knight': 0.5},
-    7: {'peasant': 0.4, 'knight': 0.5, 'cavalry': 0.1},  # First cavalry
-    8: {'peasant': 0.3, 'knight': 0.5, 'cavalry': 0.2},
-    9: {'peasant': 0.2, 'knight': 0.5, 'cavalry': 0.3},
-    10: {'peasant': 0.2, 'knight': 0.4, 'cavalry': 0.4},
-    11: {'knight': 0.4, 'cavalry': 0.4, 'cannon': 0.2},  # First cannons
-    12: {'knight': 0.3, 'cavalry': 0.4, 'cannon': 0.3},
-    # Wave 13+ uses wave 12 composition but with more enemies
+    RaidDifficulty.EASY: {
+        1: {'peasant': 1.0},
+        2: {'peasant': 1.0},
+        3: {'peasant': 1.0},
+        4: {'peasant': 0.8, 'knight': 0.2},
+        5: {'peasant': 0.7, 'knight': 0.3},
+        6: {'peasant': 0.6, 'knight': 0.4},
+        7: {'peasant': 0.5, 'knight': 0.5},
+        8: {'peasant': 0.4, 'knight': 0.5, 'cavalry': 0.1},
+        9: {'peasant': 0.3, 'knight': 0.5, 'cavalry': 0.2},
+        10: {'peasant': 0.2, 'knight': 0.5, 'cavalry': 0.3},
+        11: {'peasant': 0.2, 'knight': 0.4, 'cavalry': 0.4},
+        12: {'knight': 0.4, 'cavalry': 0.4, 'cannon': 0.2},
+    },
+    RaidDifficulty.NORMAL: {
+        1: {'peasant': 1.0},
+        2: {'peasant': 1.0},
+        3: {'peasant': 0.8, 'knight': 0.2},
+        4: {'peasant': 0.7, 'knight': 0.3},
+        5: {'peasant': 0.6, 'knight': 0.4},
+        6: {'peasant': 0.5, 'knight': 0.5},
+        7: {'peasant': 0.4, 'knight': 0.5, 'cavalry': 0.1},
+        8: {'peasant': 0.3, 'knight': 0.5, 'cavalry': 0.2},
+        9: {'peasant': 0.2, 'knight': 0.5, 'cavalry': 0.3},
+        10: {'peasant': 0.2, 'knight': 0.4, 'cavalry': 0.4},
+        11: {'knight': 0.4, 'cavalry': 0.4, 'cannon': 0.2},
+        12: {'knight': 0.3, 'cavalry': 0.4, 'cannon': 0.3},
+    },
+    RaidDifficulty.HARD: {
+        1: {'peasant': 1.0},
+        2: {'peasant': 0.7, 'knight': 0.3},
+        3: {'peasant': 0.5, 'knight': 0.5},
+        4: {'peasant': 0.4, 'knight': 0.5, 'cavalry': 0.1},
+        5: {'peasant': 0.3, 'knight': 0.5, 'cavalry': 0.2},
+        6: {'peasant': 0.2, 'knight': 0.4, 'cavalry': 0.4},
+        7: {'knight': 0.4, 'cavalry': 0.4, 'cannon': 0.2},
+        8: {'knight': 0.3, 'cavalry': 0.4, 'cannon': 0.3},
+        9: {'knight': 0.2, 'cavalry': 0.4, 'cannon': 0.4},
+        10: {'knight': 0.2, 'cavalry': 0.3, 'cannon': 0.5},
+    },
 }
