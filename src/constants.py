@@ -283,9 +283,9 @@ class Team(Enum):
 
 RAID_SETTINGS = {
     'peace_duration': 60.0,  # 60 seconds between waves
-    'first_wave_delay': 30.0,  # 30 seconds before first wave
-    'base_enemies_per_wave': 5,  # Starting number of enemies
-    'enemies_increase_per_wave': 3,  # Additional enemies each wave
+    'first_wave_delay': 180.0,  # 3 minutes before first wave
+    'base_enemies_per_wave': 3,  # Starting number of enemies
+    'enemies_increase_per_wave': 2,  # Additional enemies each wave
     'spawn_distance': 100,  # Distance from map edge to spawn
     'starting_gold': 500,
     'starting_food': 300,
@@ -295,13 +295,19 @@ RAID_SETTINGS = {
 }
 
 # Wave composition - what percentage of each unit type per wave
-# Later waves introduce stronger units
+# More gradual progression - stronger units introduced slowly
 RAID_WAVE_COMPOSITION = {
     1: {'peasant': 1.0},  # Wave 1: Only peasants
-    2: {'peasant': 0.7, 'knight': 0.3},  # Wave 2: Mix
-    3: {'peasant': 0.5, 'knight': 0.5},
-    4: {'peasant': 0.3, 'knight': 0.5, 'cavalry': 0.2},
-    5: {'peasant': 0.2, 'knight': 0.4, 'cavalry': 0.4},
-    6: {'knight': 0.4, 'cavalry': 0.4, 'cannon': 0.2},
-    # Wave 7+ uses wave 6 composition but with more enemies
+    2: {'peasant': 1.0},  # Wave 2: Still peasants
+    3: {'peasant': 0.8, 'knight': 0.2},  # Wave 3: Few knights
+    4: {'peasant': 0.7, 'knight': 0.3},
+    5: {'peasant': 0.6, 'knight': 0.4},
+    6: {'peasant': 0.5, 'knight': 0.5},
+    7: {'peasant': 0.4, 'knight': 0.5, 'cavalry': 0.1},  # First cavalry
+    8: {'peasant': 0.3, 'knight': 0.5, 'cavalry': 0.2},
+    9: {'peasant': 0.2, 'knight': 0.5, 'cavalry': 0.3},
+    10: {'peasant': 0.2, 'knight': 0.4, 'cavalry': 0.4},
+    11: {'knight': 0.4, 'cavalry': 0.4, 'cannon': 0.2},  # First cannons
+    12: {'knight': 0.3, 'cavalry': 0.4, 'cannon': 0.3},
+    # Wave 13+ uses wave 12 composition but with more enemies
 }
