@@ -88,6 +88,11 @@ DEFAULT_ASSET_REGISTRY = {
         'size': (64, 64),
         'description': 'Tower - defensive structure (2 workers required)'
     },
+    'building_barricade': {
+        'file': 'barricade.png',
+        'size': (160, 160),
+        'description': 'Barricade - large defensive wall with high health'
+    },
 
     # Terrain
     'terrain_grass': {
@@ -498,7 +503,8 @@ BUILDING_ASSET_MAP = {
     'HOUSE': 'building_house',
     'CASTLE': 'building_castle',
     'FARM': 'building_farm',
-    'TOWER': 'building_tower'
+    'TOWER': 'building_tower',
+    'BARRICADE': 'building_barricade'
 }
 
 

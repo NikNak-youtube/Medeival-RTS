@@ -16,7 +16,7 @@ from .constants import (
     GameState, UnitType, BuildingType, Team, Difficulty, DIFFICULTY_SETTINGS,
     UNIT_COSTS, BUILDING_COSTS, RESOURCE_TICK_INTERVAL, BUILD_TIMES, DECONSTRUCT_REFUND,
     FOOD_CONSUMPTION_INTERVAL, FOOD_PER_UNIT, STARVATION_DAMAGE, WORKER_RANGE, TOWER_STATS,
-    RaidDifficulty, RAID_DIFFICULTY_SETTINGS, RAID_WAVE_COMPOSITION
+    RaidDifficulty, RAID_DIFFICULTY_SETTINGS, RAID_WAVE_COMPOSITION, BARRICADE_REPAIR
 )
 from .assets import AssetManager, ModManager, get_unit_asset_name, get_building_asset_name
 from .entities import Unit, Building, BloodEffect, Resources, Projectile
@@ -93,6 +93,7 @@ class Game:
         # Timers
         self.resource_timer = 0.0
         self.food_timer = 0.0
+        self.barricade_repair_timer = 0.0
 
         # UID counters (separate for player and enemy to keep them consistent in multiplayer)
         self._uid_counter = 0
@@ -1180,6 +1181,7 @@ class Game:
                 (10, BuildingType.HOUSE),
                 (75, BuildingType.FARM),
                 (140, BuildingType.TOWER),
+                (205, BuildingType.BARRICADE),
             ]
 
             for bx, building_type in building_buttons:
@@ -1188,12 +1190,12 @@ class Game:
                     return
 
             # Grid snap toggle button
-            if pygame.Rect(210, content_y, button_size, button_size).collidepoint(mouse_pos):
+            if pygame.Rect(275, content_y, button_size, button_size).collidepoint(mouse_pos):
                 self._toggle_grid_snap()
                 return
 
         # Command buttons (right side of left panel)
-        cmd_x = 290
+        cmd_x = 345
 
         # Attack-move button
         if pygame.Rect(cmd_x, content_y, small_btn, small_btn).collidepoint(mouse_pos):
@@ -1437,7 +1439,8 @@ class Game:
             BuildingType.HOUSE: (80, 80),
             BuildingType.CASTLE: (128, 128),
             BuildingType.FARM: (96, 96),
-            BuildingType.TOWER: (64, 64)
+            BuildingType.TOWER: (64, 64),
+            BuildingType.BARRICADE: (160, 160)
         }
         w, h = sizes.get(building_type, (64, 64))
 
@@ -1603,6 +1606,9 @@ class Game:
         # Update food consumption
         self._update_food_consumption()
 
+        # Update barricade repairs
+        self._update_barricade_repairs()
+
         # Update unit healing
         self._update_healing()
 
@@ -1656,6 +1662,9 @@ class Game:
 
         # Update food consumption
         self._update_food_consumption()
+
+        # Update barricade repairs
+        self._update_barricade_repairs()
 
         # Update unit healing
         self._update_healing()
@@ -1836,7 +1845,7 @@ class Game:
         """Check if a unit is colliding with any building and return speed multiplier.
 
         Returns:
-            1.0 if no collision, 0.3 for completed buildings (70% slow), 0.6 for incomplete (40% slow)
+            1.0 if no collision, varies based on building type and team
         """
         unit_radius = unit.get_collision_radius()
 
@@ -1850,7 +1859,13 @@ class Game:
             dist = math.sqrt(dx * dx + dy * dy)
 
             if dist < min_dist:
-                # Completed buildings slow by 70%, incomplete by 40%
+                # Barricades only slow same-team units by 40% (0.6 multiplier)
+                if building.building_type == BuildingType.BARRICADE:
+                    if unit.team == building.team:
+                        return 0.6  # 40% slowdown for friendly units
+                    else:
+                        return 0.3  # 70% slowdown for enemies
+                # Other buildings: 70% slow for completed, 40% for incomplete
                 return 0.3 if building.completed else 0.6
         return 1.0
 
@@ -2120,6 +2135,37 @@ class Game:
                 self.enemy_resources.food = 0
                 for unit in enemy_units:
                     unit.take_damage(STARVATION_DAMAGE)
+
+    def _update_barricade_repairs(self):
+        """Update barricade repairs by workers using wood."""
+        self.barricade_repair_timer += self.dt
+        if self.barricade_repair_timer < BARRICADE_REPAIR['repair_interval']:
+            return
+        self.barricade_repair_timer = 0
+
+        for building in self.buildings:
+            # Only repair barricades that are damaged and completed
+            if building.building_type != BuildingType.BARRICADE:
+                continue
+            if not building.completed:
+                continue
+            if building.health >= building.max_health:
+                continue
+
+            # Check if there's a worker assigned
+            workers = building.count_workers(self.units)
+            if workers == 0:
+                continue
+
+            # Get the appropriate resources for this team
+            resources = self.player_resources if building.team == Team.PLAYER else self.enemy_resources
+
+            # Check if we have enough wood
+            wood_cost = BARRICADE_REPAIR['wood_cost']
+            if resources.wood >= wood_cost:
+                resources.wood -= wood_cost
+                building.health = min(building.max_health,
+                                     building.health + BARRICADE_REPAIR['repair_amount'])
 
     def _update_healing(self):
         """Update unit healing for both teams."""
@@ -3170,6 +3216,7 @@ class Game:
                 (10, BuildingType.HOUSE, 'building_house', f"{BUILDING_COSTS['house']['gold']}g"),
                 (75, BuildingType.FARM, 'building_farm', f"{BUILDING_COSTS['farm']['gold']}g"),
                 (140, BuildingType.TOWER, 'building_tower', f"{BUILDING_COSTS['tower']['gold']}g"),
+                (205, BuildingType.BARRICADE, 'building_barricade', f"{BUILDING_COSTS['barricade']['wood']}w"),
             ]
 
             for bx, building_type, asset_name, label in buildings:
@@ -3185,21 +3232,21 @@ class Game:
                 self.screen.blit(label_surf, (bx + 5, content_y + 47))
 
             # Grid snap toggle button
-            grid_rect = pygame.Rect(210, content_y, button_size, button_size)
+            grid_rect = pygame.Rect(275, content_y, button_size, button_size)
             grid_color = GREEN if self.grid_snap else GRAY
             pygame.draw.rect(self.screen, grid_color, grid_rect)
             pygame.draw.rect(self.screen, BLACK, grid_rect, 2)
             grid_text = self.font.render("GRID", True, WHITE)
-            self.screen.blit(grid_text, (215, content_y + 10))
+            self.screen.blit(grid_text, (280, content_y + 10))
             grid_key = self._get_key_name(self.keybinds['grid_snap'])
             snap_text = self.font.render(grid_key, True, LIGHT_GRAY)
-            self.screen.blit(snap_text, (233, content_y + 32))
+            self.screen.blit(snap_text, (298, content_y + 32))
             # Show On/Off status
             status_text = self.font.render("On" if self.grid_snap else "Off", True, WHITE)
-            self.screen.blit(status_text, (223, content_y + 47))
+            self.screen.blit(status_text, (288, content_y + 47))
 
         # Command buttons (right side of left panel)
-        cmd_x = 290
+        cmd_x = 345
 
         # Attack-move button
         atk_rect = pygame.Rect(cmd_x, content_y, small_btn, small_btn)

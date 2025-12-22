@@ -150,14 +150,16 @@ BUILDING_COSTS = {
     'house': {'gold': 100, 'wood': 50},
     'castle': {'gold': 500, 'wood': 200},
     'farm': {'gold': 75, 'wood': 25},
-    'tower': {'gold': 200, 'wood': 100}
+    'tower': {'gold': 200, 'wood': 100},
+    'barricade': {'gold': 50, 'wood': 150}
 }
 
 BUILDING_STATS = {
     'house': {'health': 300},
     'castle': {'health': 2000},
     'farm': {'health': 200},
-    'tower': {'health': 500}
+    'tower': {'health': 500},
+    'barricade': {'health': 1500}
 }
 
 # =============================================================================
@@ -171,7 +173,15 @@ BUILDING_RESOURCE_GENERATION = {
     'house': {'gold': 20, 'food': 0, 'wood': 0, 'max_workers': 2},
     'farm': {'gold': 0, 'food': 25, 'wood': 5, 'max_workers': 3},
     'castle': {'gold': 10, 'food': 5, 'wood': 5, 'max_workers': 1},
-    'tower': {'gold': 0, 'food': 0, 'wood': 0, 'max_workers': 2}
+    'tower': {'gold': 0, 'food': 0, 'wood': 0, 'max_workers': 2},
+    'barricade': {'gold': 0, 'food': 0, 'wood': 0, 'max_workers': 1}
+}
+
+# Barricade repair settings
+BARRICADE_REPAIR = {
+    'wood_cost': 5,          # Wood per repair tick
+    'repair_amount': 50,     # Health restored per tick
+    'repair_interval': 2.0   # Seconds between repairs
 }
 
 # =============================================================================
@@ -271,6 +281,7 @@ class BuildingType(Enum):
     CASTLE = auto()
     FARM = auto()
     TOWER = auto()
+    BARRICADE = auto()
 
 
 class Team(Enum):
