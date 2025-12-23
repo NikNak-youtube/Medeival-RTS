@@ -27,6 +27,7 @@ from .ui import (
     Button, TextInput, HUDButton, Minimap, ResourceDisplay, SelectionInfo,
     draw_health_bar
 )
+from .savedata import SaveDataManager, KEYBIND_PRESETS
 
 
 class Game:
@@ -90,6 +91,10 @@ class Game:
         self.network = NetworkManager(self)
         self.is_multiplayer = False
 
+        # Save data manager
+        self.save_manager = SaveDataManager()
+        self.session_start_time = time.time()
+
         # Timers
         self.resource_timer = 0.0
         self.food_timer = 0.0
@@ -102,13 +107,14 @@ class Game:
         # Fonts (will be scaled in _create_fonts)
         self._create_fonts()
 
-        # Settings
-        self.fullscreen = False
-        self.vsync = False
+        # Settings (load from save manager)
+        self.fullscreen = self.save_manager.get_setting('fullscreen', False)
+        self.vsync = self.save_manager.get_setting('vsync', False)
+        self.sound_enabled = self.save_manager.get_setting('sound_enabled', True)
         self.selected_difficulty = Difficulty.NORMAL
-        self.grid_snap = False  # Toggle for grid snapping when placing buildings
+        self.grid_snap = self.save_manager.get_setting('grid_snap', False)
         self.grid_size = 64  # Grid cell size for snapping
-        self.resolution_index = 0  # Index into RESOLUTIONS list
+        self.resolution_index = self.save_manager.get_setting('resolution_index', 0)
 
         # Healing system - units consume food to heal
         self.player_healing_enabled = False
@@ -118,18 +124,8 @@ class Game:
         self.heal_amount = 5  # HP healed per tick
         self.heal_food_cost = 3  # Food cost per unit healed
 
-        # Keybinds configuration
-        self.keybinds = {
-            'train_peasant': pygame.K_p,
-            'train_knight': pygame.K_k,
-            'train_cavalry': pygame.K_c,
-            'train_cannon': pygame.K_n,
-            'attack_move': pygame.K_a,
-            'stop': pygame.K_s,
-            'heal_toggle': pygame.K_h,
-            'grid_snap': pygame.K_g,
-            'deconstruct': pygame.K_x,
-        }
+        # Keybinds configuration (load from save manager)
+        self.keybinds = self.save_manager.keybinds.copy()
         self.keybind_names = {
             'train_peasant': 'Train Peasant',
             'train_knight': 'Train Knight',
@@ -805,6 +801,7 @@ class Game:
         else:
             self.screen = pygame.display.set_mode((constants.SCREEN_WIDTH, constants.SCREEN_HEIGHT), vsync=1 if self.vsync else 0)
             self.fullscreen_button.text = "Fullscreen: Off"
+        self.save_manager.set_setting('fullscreen', self.fullscreen)
 
     def _toggle_vsync(self):
         """Toggle VSync mode."""
@@ -822,6 +819,7 @@ class Game:
             self.vsync_button.text = "VSync: On"
         else:
             self.vsync_button.text = "VSync: Off"
+        self.save_manager.set_setting('vsync', self.vsync)
 
     def _toggle_grid_snap(self):
         """Toggle grid snapping for building placement."""
@@ -830,6 +828,15 @@ class Game:
             self.grid_snap_button.text = "Grid Snap: On"
         else:
             self.grid_snap_button.text = "Grid Snap: Off"
+        self.save_manager.set_setting('grid_snap', self.grid_snap)
+
+    def _save_session_playtime(self):
+        """Save the current session's playtime."""
+        session_duration = time.time() - self.session_start_time
+        self.save_manager.add_playtime(session_duration)
+        self.save_manager.save_stats()
+        # Reset session timer
+        self.session_start_time = time.time()
 
     def _toggle_sound(self):
         """Toggle sound effects on/off."""
@@ -838,6 +845,7 @@ class Game:
             self.sound_button.text = "Sound: On"
         else:
             self.sound_button.text = "Sound: Off"
+        self.save_manager.set_setting('sound_enabled', self.sound_enabled)
 
     def _cycle_resolution(self):
         """Cycle through available resolutions."""
@@ -863,6 +871,9 @@ class Game:
 
         # Update button text
         self.resolution_button.text = f"Resolution: {new_width}x{new_height}"
+
+        # Save resolution setting
+        self.save_manager.set_setting('resolution_index', self.resolution_index)
 
         # Recreate UI elements with new positions
         self._recreate_ui()
@@ -904,6 +915,10 @@ class Game:
                         break
                 self.keybinds[self.rebinding_key] = event.key
                 self.rebinding_key = None
+                # Save keybinds
+                self.save_manager.keybinds = self.keybinds.copy()
+                self.save_manager.current_preset = 'custom'
+                self.save_manager.save_keybinds()
             return
 
         if clicked:
@@ -912,17 +927,8 @@ class Game:
                 self.rebinding_key = None
             elif self.keybinds_reset_button.is_clicked(mouse_pos, True):
                 # Reset to defaults
-                self.keybinds = {
-                    'train_peasant': pygame.K_p,
-                    'train_knight': pygame.K_k,
-                    'train_cavalry': pygame.K_c,
-                    'train_cannon': pygame.K_n,
-                    'attack_move': pygame.K_a,
-                    'stop': pygame.K_s,
-                    'heal_toggle': pygame.K_h,
-                    'grid_snap': pygame.K_g,
-                    'deconstruct': pygame.K_x,
-                }
+                self.save_manager.reset_keybinds()
+                self.keybinds = self.save_manager.keybinds.copy()
                 self.rebinding_key = None
             else:
                 # Check if clicking on a keybind row
@@ -1682,6 +1688,11 @@ class Game:
                 break
 
         if player_castle is None or player_castle.is_destroyed():
+            if self.state != GameState.GAME_OVER:  # Only trigger once
+                # Record raid game stats
+                difficulty_name = self.raid_difficulty.name.lower()
+                self.save_manager.record_raid_game(self.raid_wave, difficulty_name)
+                self._save_session_playtime()
             self.state = GameState.GAME_OVER
             self.winner = Team.ENEMY
 
@@ -2387,11 +2398,25 @@ class Game:
         )
 
         if not player_castle or not enemy_castle:
-            if self.state != GameState.GAME_OVER:  # Only play sound once
+            if self.state != GameState.GAME_OVER:  # Only trigger once
                 if not enemy_castle and player_castle:
                     self.play_sound('victory')
+                    self.winner = Team.PLAYER
+                    # Record win
+                    if self.is_multiplayer:
+                        self.save_manager.record_mp_win()
+                    else:
+                        self.save_manager.record_sp_win()
                 else:
                     self.play_sound('defeat')
+                    self.winner = Team.ENEMY
+                    # Record loss
+                    if self.is_multiplayer:
+                        self.save_manager.record_mp_loss()
+                    else:
+                        self.save_manager.record_sp_loss()
+                # Save playtime
+                self._save_session_playtime()
             self.state = GameState.GAME_OVER
 
     # =========================================================================
