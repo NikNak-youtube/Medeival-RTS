@@ -173,18 +173,22 @@ class Game:
         small_font = int(28 * s)
 
         # Main menu buttons (centered, positions relative to center)
-        btn_w, btn_h = int(300 * s), int(50 * s)
+        btn_w, btn_h = int(300 * s), int(45 * s)
         btn_x = w // 2 - btn_w // 2
         self.menu_buttons = [
             Button(btn_x, int(180 * s), btn_w, btn_h, "Play vs AI", font_size=btn_font),
-            Button(btn_x, int(235 * s), btn_w, btn_h, "Raid Mode", font_size=btn_font),
-            Button(btn_x, int(290 * s), btn_w, btn_h, "Host Multiplayer", font_size=btn_font),
-            Button(btn_x, int(345 * s), btn_w, btn_h, "Join Multiplayer", font_size=btn_font),
-            Button(btn_x, int(400 * s), btn_w, btn_h, "How to Play", font_size=btn_font),
-            Button(btn_x, int(455 * s), btn_w, btn_h, "Settings", font_size=btn_font),
-            Button(btn_x, int(510 * s), btn_w, btn_h, "Mods", font_size=btn_font),
-            Button(btn_x, int(565 * s), btn_w, btn_h, "Quit", font_size=btn_font)
+            Button(btn_x, int(230 * s), btn_w, btn_h, "Raid Mode", font_size=btn_font),
+            Button(btn_x, int(280 * s), btn_w, btn_h, "Host Multiplayer", font_size=btn_font),
+            Button(btn_x, int(330 * s), btn_w, btn_h, "Join Multiplayer", font_size=btn_font),
+            Button(btn_x, int(380 * s), btn_w, btn_h, "How to Play", font_size=btn_font),
+            Button(btn_x, int(430 * s), btn_w, btn_h, "Settings", font_size=btn_font),
+            Button(btn_x, int(480 * s), btn_w, btn_h, "Stats", font_size=btn_font),
+            Button(btn_x, int(530 * s), btn_w, btn_h, "Mods", font_size=btn_font),
+            Button(btn_x, int(580 * s), btn_w, btn_h, "Quit", font_size=btn_font)
         ]
+
+        # Stats menu back button
+        self.stats_back_button = Button(w // 2 - int(75 * s), h - int(60 * s), int(150 * s), int(40 * s), "Back", font_size=btn_font)
 
         # Mods menu buttons
         mod_btn_w, mod_btn_h = int(120 * s), int(35 * s)
@@ -233,6 +237,16 @@ class Game:
         kb_h = int(40 * s)
         self.keybinds_back_button = Button(w // 2 - kb_back_w // 2, h - int(60 * s), kb_back_w, kb_h, "Back", font_size=btn_font)
         self.keybinds_reset_button = Button(w // 2 - kb_back_w // 2 - kb_reset_w - int(10 * s), h - int(60 * s), kb_reset_w, kb_h, "Reset All", font_size=small_font)
+
+        # Keybind preset buttons (positioned at bottom right)
+        preset_w = int(100 * s)
+        preset_h = int(35 * s)
+        preset_x = w // 2 + int(80 * s)
+        self.keybind_preset_buttons = [
+            Button(preset_x, h - int(60 * s), preset_w, preset_h, "Default", font_size=small_font),
+            Button(preset_x + preset_w + int(5 * s), h - int(60 * s), preset_w, preset_h, "WASD", font_size=small_font),
+            Button(preset_x + (preset_w + int(5 * s)) * 2, h - int(60 * s), preset_w, preset_h, "MOBA", font_size=small_font),
+        ]
 
         # Multiplayer UI
         mp_w, mp_h = int(300 * s), int(40 * s)
@@ -695,6 +709,8 @@ class Game:
             self._handle_keybinds_input(mouse_pos, mouse_clicked)
         elif self.state == GameState.MODS:
             self._handle_mods_input(mouse_pos, mouse_clicked)
+        elif self.state == GameState.STATS:
+            self._handle_stats_input(mouse_pos, mouse_clicked)
         elif self.state == GameState.RAID:
             self._handle_game_input(mouse_pos, mouse_clicked, right_clicked)
         elif self.state == GameState.RAID_DIFFICULTY_SELECT:
@@ -722,10 +738,12 @@ class Game:
             elif self.menu_buttons[5].is_clicked(mouse_pos, True):
                 self.state = GameState.SETTINGS
             elif self.menu_buttons[6].is_clicked(mouse_pos, True):
+                self.state = GameState.STATS
+            elif self.menu_buttons[7].is_clicked(mouse_pos, True):
                 self.state = GameState.MODS
                 self.mod_scroll_offset = 0
                 self.selected_mod_index = -1
-            elif self.menu_buttons[7].is_clicked(mouse_pos, True):
+            elif self.menu_buttons[8].is_clicked(mouse_pos, True):
                 self.running = False
 
     def _handle_difficulty_input(self, mouse_pos: Tuple[int, int], clicked: bool):
@@ -900,6 +918,8 @@ class Game:
         """Handle keybinds menu input."""
         self.keybinds_back_button.update(mouse_pos)
         self.keybinds_reset_button.update(mouse_pos)
+        for button in self.keybind_preset_buttons:
+            button.update(mouse_pos)
 
         # If we're waiting for a key press to rebind
         if self.rebinding_key and event and event.type == pygame.KEYDOWN:
@@ -931,6 +951,15 @@ class Game:
                 self.keybinds = self.save_manager.keybinds.copy()
                 self.rebinding_key = None
             else:
+                # Check preset buttons
+                preset_names = ['default', 'wasd', 'moba']
+                for i, button in enumerate(self.keybind_preset_buttons):
+                    if button.is_clicked(mouse_pos, True):
+                        self.save_manager.apply_preset(preset_names[i])
+                        self.keybinds = self.save_manager.keybinds.copy()
+                        self.rebinding_key = None
+                        return
+
                 # Check if clicking on a keybind row
                 start_y = 180
                 row_height = 40
@@ -949,6 +978,14 @@ class Game:
 
         if clicked:
             if self.how_to_play_back_button.is_clicked(mouse_pos, True):
+                self.state = GameState.MAIN_MENU
+
+    def _handle_stats_input(self, mouse_pos: Tuple[int, int], clicked: bool):
+        """Handle stats menu input."""
+        self.stats_back_button.update(mouse_pos)
+
+        if clicked:
+            if self.stats_back_button.is_clicked(mouse_pos, True):
                 self.state = GameState.MAIN_MENU
 
     def _handle_mods_input(self, mouse_pos: Tuple[int, int], clicked: bool):
@@ -2446,6 +2483,8 @@ class Game:
             self._draw_keybinds()
         elif self.state == GameState.MODS:
             self._draw_mods_menu()
+        elif self.state == GameState.STATS:
+            self._draw_stats()
         elif self.state == GameState.RAID:
             self._draw_game()
             self._draw_raid_hud()
@@ -2665,6 +2704,94 @@ class Game:
         # Buttons
         self.keybinds_reset_button.draw(self.screen)
         self.keybinds_back_button.draw(self.screen)
+
+        # Preset buttons
+        preset_label = self.font.render("Presets:", True, LIGHT_GRAY)
+        self.screen.blit(preset_label, (constants.SCREEN_WIDTH // 2 + int(80 * constants.get_scale()), constants.SCREEN_HEIGHT - int(90 * constants.get_scale())))
+        for button in self.keybind_preset_buttons:
+            button.draw(self.screen)
+
+        # Show current preset
+        preset_text = self.font.render(f"Current: {self.save_manager.current_preset.title()}", True, GOLD)
+        self.screen.blit(preset_text, (constants.SCREEN_WIDTH // 2 - int(200 * constants.get_scale()), constants.SCREEN_HEIGHT - int(90 * constants.get_scale())))
+
+    def _draw_stats(self):
+        """Draw player statistics screen."""
+        self.screen.fill(DARK_GRAY)
+        s = constants.get_scale()
+
+        # Title
+        title = self.large_font.render("Player Statistics", True, GOLD)
+        title_rect = title.get_rect(center=(constants.SCREEN_WIDTH // 2, int(50 * s)))
+        self.screen.blit(title, title_rect)
+
+        stats = self.save_manager.stats
+        left_x = int(100 * s)
+        right_x = constants.SCREEN_WIDTH // 2 + int(50 * s)
+        y = int(100 * s)
+        line_height = int(30 * s)
+
+        # Left column - Single Player & Multiplayer
+        self.screen.blit(self.large_font.render("Singleplayer", True, WHITE), (left_x, y))
+        y += int(40 * s)
+        self.screen.blit(self.font.render(f"Games Played: {stats['sp_games_played']}", True, LIGHT_GRAY), (left_x, y))
+        y += line_height
+        self.screen.blit(self.font.render(f"Wins: {stats['sp_wins']}", True, GREEN), (left_x, y))
+        y += line_height
+        self.screen.blit(self.font.render(f"Losses: {stats['sp_losses']}", True, RED), (left_x, y))
+        y += line_height
+        if stats['sp_games_played'] > 0:
+            winrate = (stats['sp_wins'] / stats['sp_games_played']) * 100
+            self.screen.blit(self.font.render(f"Win Rate: {winrate:.1f}%", True, LIGHT_GRAY), (left_x, y))
+        y += int(50 * s)
+
+        self.screen.blit(self.large_font.render("Multiplayer", True, WHITE), (left_x, y))
+        y += int(40 * s)
+        self.screen.blit(self.font.render(f"Games Played: {stats['mp_games_played']}", True, LIGHT_GRAY), (left_x, y))
+        y += line_height
+        self.screen.blit(self.font.render(f"Wins: {stats['mp_wins']}", True, GREEN), (left_x, y))
+        y += line_height
+        self.screen.blit(self.font.render(f"Losses: {stats['mp_losses']}", True, RED), (left_x, y))
+        y += line_height
+        if stats['mp_games_played'] > 0:
+            winrate = (stats['mp_wins'] / stats['mp_games_played']) * 100
+            self.screen.blit(self.font.render(f"Win Rate: {winrate:.1f}%", True, LIGHT_GRAY), (left_x, y))
+
+        # Right column - Raid Mode & General
+        y = int(100 * s)
+        self.screen.blit(self.large_font.render("Raid Mode", True, WHITE), (right_x, y))
+        y += int(40 * s)
+        self.screen.blit(self.font.render(f"Games Played: {stats['raid_games_played']}", True, LIGHT_GRAY), (right_x, y))
+        y += line_height
+        self.screen.blit(self.font.render(f"Highest Wave: {stats['raid_highest_wave']}", True, GOLD), (right_x, y))
+        y += line_height
+        self.screen.blit(self.font.render(f"Total Waves Survived: {stats['raid_total_waves_survived']}", True, LIGHT_GRAY), (right_x, y))
+        y += int(40 * s)
+
+        # Raid highscores per difficulty
+        self.screen.blit(self.font.render("Highscores by Difficulty:", True, WHITE), (right_x, y))
+        y += line_height
+        self.screen.blit(self.font.render(f"  Easy: Wave {stats['raid_highscores']['easy']}", True, GREEN), (right_x, y))
+        y += line_height
+        self.screen.blit(self.font.render(f"  Normal: Wave {stats['raid_highscores']['normal']}", True, YELLOW), (right_x, y))
+        y += line_height
+        self.screen.blit(self.font.render(f"  Hard: Wave {stats['raid_highscores']['hard']}", True, RED), (right_x, y))
+        y += int(50 * s)
+
+        # General stats
+        self.screen.blit(self.large_font.render("Lifetime Stats", True, WHITE), (right_x, y))
+        y += int(40 * s)
+        self.screen.blit(self.font.render(f"Units Trained: {stats['total_units_trained']}", True, LIGHT_GRAY), (right_x, y))
+        y += line_height
+        self.screen.blit(self.font.render(f"Buildings Built: {stats['total_buildings_built']}", True, LIGHT_GRAY), (right_x, y))
+        y += line_height
+        self.screen.blit(self.font.render(f"Enemies Killed: {stats['total_enemies_killed']}", True, LIGHT_GRAY), (right_x, y))
+        y += line_height
+        playtime = self.save_manager.get_playtime_formatted()
+        self.screen.blit(self.font.render(f"Total Playtime: {playtime}", True, LIGHT_GRAY), (right_x, y))
+
+        # Back button
+        self.stats_back_button.draw(self.screen)
 
     def _draw_how_to_play(self):
         """Draw how to play screen with game instructions."""

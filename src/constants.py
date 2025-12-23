@@ -267,6 +267,7 @@ class GameState(Enum):
     MODS = auto()
     RAID = auto()  # Wave-based survival mode
     RAID_DIFFICULTY_SELECT = auto()  # Raid difficulty selection
+    STATS = auto()  # Player statistics screen
 
 
 class UnitType(Enum):
